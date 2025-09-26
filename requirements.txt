@@ -1,0 +1,7 @@
+beautifulsoup4
+python-dotenv
+playwright
+html2text
+aiohttp
+markdownify
+pytest
