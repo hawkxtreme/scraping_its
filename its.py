@@ -174,7 +174,7 @@ async def main(toc_url, formats, target_chapter):
     with open(log_file_path, "w", encoding="utf-8") as f:
         pass
 
-    log(f"---\nScript: its_v6.py\nTimestamp: {timestamp}")
+    log(f"---\nScript: its_v9.py\nTimestamp: {timestamp}")
     log(f"URL: {toc_url}\nFormats: {formats}\nChapter: {target_chapter}")
     if not await check_dependencies(log):
         return
@@ -186,46 +186,57 @@ async def main(toc_url, formats, target_chapter):
     async with async_playwright() as p:
         browser = await p.chromium.connect_over_cdp(browserless_url)
         context = await browser.new_context()
-        page = await context.new_page()
-        page.set_default_timeout(90000)
+        
+        # --- 1. Login --- 
+        try:
+            print("Step 1: Logging in...")
+            log("Step 1: Logging in...")
+            page = await context.new_page()
+            await page.goto("https://login.1c.ru/login")
+            await page.fill("input#username", username)
+            await page.fill("input#password", password)
+            await page.press('input#password', 'Enter')
+            await page.wait_for_load_state('networkidle')
+            await page.close()
+            print("Login successful.")
+            log("Login successful.")
+        except Exception as e:
+            log(f"FATAL: Login failed: {e}")
+            print(f"FATAL: Login failed. Check credentials and network. Error: {e}")
+            await browser.close()
+            return
 
-        print("Step 1: Logging in...")
-        log("Step 1: Logging in...")
-        await page.goto("https://login.1c.ru/login")
-        await page.fill("input#username", username)
-        await page.fill("input#password", password)
-        await page.press('input#password', 'Enter')
-        await page.wait_for_load_state('networkidle')
-        print("Login successful.")
-        log("Login successful.")
-
-        print(f"Step 2: Scraping initial table of contents from {toc_url}...")
-        log(f"Step 2: Scraping initial table of contents...")
-        await page.goto(toc_url)
-        await page.wait_for_load_state('networkidle')
-        page_content = await page.content()
-        soup = BeautifulSoup(page_content, 'html.parser')
-        toc_div = soup.find('div', id='w_metadata_toc')
+        # --- 2. Get Initial TOC ---
         initial_toc_links = []
-        if toc_div:
-            for i, link in enumerate(toc_div.select('ul li a')):
-                href = link.get('href')
-                text = link.get_text(strip=True)
-                if href and text:
-                    initial_toc_links.append({
-                        "title": text,
-                        "url": f"https://its.1c.ru{href}",
-                        "original_order": i
-                    })
-            log(f"Found {len(initial_toc_links)} initial links.")
-        else:
-            print("Result: Failed - Could not find the table of contents div.")
+        try:
+            print(f"Step 2: Scraping initial table of contents from {toc_url}...")
+            log(f"Step 2: Scraping initial table of contents...")
+            page = await context.new_page()
+            await page.goto(toc_url)
+            await page.wait_for_load_state('networkidle')
+            page_content = await page.content()
+            await page.close()
+            soup = BeautifulSoup(page_content, 'html.parser')
+            toc_div = soup.find('div', id='w_metadata_toc')
+            if toc_div:
+                for i, link in enumerate(toc_div.select('ul li a')):
+                    href = link.get('href')
+                    text = link.get_text(strip=True)
+                    if href and text:
+                        initial_toc_links.append({"title": text, "url": f"https://its.1c.ru{href}", "original_order": i})
+                log(f"Found {len(initial_toc_links)} initial links.")
+            else:
+                raise Exception("Could not find the table of contents div with id 'w_metadata_toc'.")
+        except Exception as e:
+            log(f"FATAL: Failed to get initial TOC: {e}")
+            print(f"FATAL: Could not get initial table of contents. Error: {e}")
             await browser.close()
             return
 
         if target_chapter:
             initial_toc_links = [link for link in initial_toc_links if link['title'] == target_chapter]
 
+        # --- 3. Discovery Pass ---
         print("Step 3: Discovering all unique articles and creating index...")
         log("Step 3: Discovering and Indexing...")
         queue = initial_toc_links[:]
@@ -236,37 +247,32 @@ async def main(toc_url, formats, target_chapter):
             article_info = queue[discovery_count]
             url_without_fragment = article_info['url'].split('#')[0]
             print_progress(discovery_count, len(queue), "Discovering", article_info['title'])
-            
-            try:
-                if url_without_fragment in processed_urls:
-                    discovery_count += 1
-                    continue
 
+            if url_without_fragment in processed_urls:
+                discovery_count += 1
+                continue
+
+            page = None
+            try:
+                page = await context.new_page()
                 await page.goto(article_info['url'], timeout=90000)
                 await page.wait_for_load_state('networkidle')
                 article_frame = page.frame(name="w_metadata_doc_frame")
                 if not article_frame:
-                    processed_urls.add(url_without_fragment)
-                    discovery_count += 1
-                    continue
+                    raise Exception("Could not find article frame.")
 
                 iframe_html = await article_frame.content()
                 soup = BeautifulSoup(iframe_html, 'html.parser')
                 content_div = soup.find('body')
                 if not content_div:
-                    processed_urls.add(url_without_fragment)
-                    discovery_count += 1
-                    continue
+                    raise Exception("Could not find body content.")
 
                 article_text = content_div.get_text(separator='\n', strip=True)
                 content_hash = hash(article_text)
+
                 if content_hash not in scraped_content_hashes:
                     scraped_content_hashes.add(content_hash)
-                    index_data = {
-                        "title": article_info["title"],
-                        "url": article_info["url"],
-                        "original_order": article_info.get("original_order", 9999)
-                    }
+                    index_data = {"title": article_info["title"], "url": article_info["url"], "original_order": article_info.get("original_order", 9999)}
                     index_filename = f"{hash(article_info['url'])}.json"
                     with open(os.path.join(tmp_index_dir, index_filename), "w", encoding="utf-8") as f:
                         json.dump(index_data, f)
@@ -281,34 +287,38 @@ async def main(toc_url, formats, target_chapter):
                             full_url = f"https://its.1c.ru{href}"
                             if full_url.split('#')[0] not in processed_urls:
                                 queue.append({"title": text, "url": full_url})
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 discovery_count += 1
 
             except PlaywrightError as e:
                 log(f"  - FATAL Playwright error during discovery: {e}")
                 print(f"\nPlaywright error, attempting to recover...")
+                if page: await page.close()
                 try:
                     await context.close()
                     await browser.close()
-                except Exception as close_ex:
-                    log(f"    - Error while closing browser/context: {close_ex}")
+                except Exception: pass
                 browser = await p.chromium.connect_over_cdp(browserless_url)
                 context = await browser.new_context()
-                page = await context.new_page()
                 log("Re-logging in after error...")
-                await page.goto("https://login.1c.ru/login")
-                await page.fill("input#username", username)
-                await page.fill("input#password", password)
-                await page.press('input#password', 'Enter')
-                await page.wait_for_load_state('networkidle')
-                log("Re-login successful.")
+                login_page = await context.new_page()
+                await login_page.goto("https://login.1c.ru/login")
+                await login_page.fill("input#username", username)
+                await login_page.fill("input#password", password)
+                await login_page.press('input#password', 'Enter')
+                await login_page.wait_for_load_state('networkidle')
+                await login_page.close()
+                log("Re-login successful. Cooling down for 5 seconds...")
+                await asyncio.sleep(5)
                 continue
             except Exception as e:
-                log(f"  - NON-PLAYWRIGHT ERROR during discovery for {article_info['title']}: {e}")
-                processed_urls.add(url_without_fragment)
+                log(f"  - NON-FATAL ERROR during discovery for {article_info['title']}: {e}")
                 discovery_count += 1
                 continue
+            finally:
+                if page: await page.close()
 
+        # --- 4. Scraping Pass ---
         print("\nStep 4: Reading index and starting final scrape...")
         log("Step 4: Reading index and starting final scrape...")
         final_articles_list = []
@@ -321,16 +331,19 @@ async def main(toc_url, formats, target_chapter):
         while i < len(final_articles_list):
             article_info = final_articles_list[i]
             print_progress(i + 1, len(final_articles_list), "Scraping", article_info['title'])
+            page = None
             try:
+                page = await context.new_page()
                 await page.goto(article_info['url'], timeout=90000)
                 await page.wait_for_load_state('networkidle')
                 article_frame = page.frame(name="w_metadata_doc_frame")
                 if not article_frame:
-                    i += 1
-                    continue
+                    raise Exception("Could not find article frame for final scrape.")
+
                 number = f"{i+1:03d}"
                 sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
                 filename_base = f"{number}_{sanitized_title}"
+
                 if 'json' in formats or 'txt' in formats or 'markdown' in formats:
                     iframe_html = await article_frame.content()
                     soup = BeautifulSoup(iframe_html, 'html.parser')
@@ -345,6 +358,7 @@ async def main(toc_url, formats, target_chapter):
                     if 'markdown' in formats:
                         with open(os.path.join(markdown_dir, f"{filename_base}.md"), "w", encoding="utf-8") as f:
                             f.write(markdownify.markdownify(str(content_div), heading_style="ATX"))
+                
                 if 'pdf' in formats:
                     pdf_path = os.path.join(pdf_dir, f"{filename_base}.pdf")
                     print_link_element = await page.query_selector('#w_metadata_print_href')
@@ -364,32 +378,38 @@ async def main(toc_url, formats, target_chapter):
                     else:
                         with open(pdf_path, "wb") as f:
                             f.write(await page.pdf(format='A4', print_background=True))
-                await asyncio.sleep(1)
+                
+                await asyncio.sleep(0.5)
                 i += 1
             except PlaywrightError as e:
                 log(f"  - FATAL Playwright error during final scrape: {e}")
                 print(f"\nPlaywright error, attempting to recover...")
+                if page: await page.close()
                 try:
                     await context.close()
                     await browser.close()
-                except Exception as close_ex:
-                    log(f"    - Error while closing browser/context: {close_ex}")
+                except Exception: pass
                 browser = await p.chromium.connect_over_cdp(browserless_url)
                 context = await browser.new_context()
-                page = await context.new_page()
                 log("Re-logging in after error...")
-                await page.goto("https://login.1c.ru/login")
-                await page.fill("input#username", username)
-                await page.fill("input#password", password)
-                await page.press('input#password', 'Enter')
-                await page.wait_for_load_state('networkidle')
-                log("Re-login successful.")
+                login_page = await context.new_page()
+                await login_page.goto("https://login.1c.ru/login")
+                await login_page.fill("input#username", username)
+                await login_page.fill("input#password", password)
+                await login_page.press('input#password', 'Enter')
+                await login_page.wait_for_load_state('networkidle')
+                await login_page.close()
+                log("Re-login successful. Cooling down for 5 seconds...")
+                await asyncio.sleep(5)
                 continue
             except Exception as e:
-                log(f"  - NON-PLAYWRIGHT ERROR during final scraping of {article_info['title']}: {e}")
+                log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
                 i += 1
                 continue
+            finally:
+                if page: await page.close()
 
+        # --- 5. Cleanup ---
         print("\nStep 5: Cleaning up temporary files...")
         log("Step 5: Cleaning up temporary files...")
         shutil.rmtree(tmp_index_dir)
