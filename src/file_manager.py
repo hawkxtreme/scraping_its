@@ -3,7 +3,7 @@ import shutil
 import json
 import markdownify
 
-import config
+from . import config
 
 def setup_output_directories():
     """Cleans and creates the necessary output directories."""

@@ -4,10 +4,10 @@ from playwright.async_api import async_playwright, Error as PlaywrightError, Pag
 from bs4 import BeautifulSoup
 
 # Import modularized components
-import config
-import parser
-import file_manager
-from ui import print_progress
+from . import config
+from . import parser
+from . import file_manager
+from .ui import print_progress
 
 class Scraper:
     """Manages all web scraping operations using Playwright."""

@@ -24,7 +24,8 @@ LOGIN_URL = "https://login.1c.ru/login"
 
 # --- Directory Setup ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, "out")
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "out")
 
 # Article directories
 BASE_ARTICLES_DIR = os.path.join(OUTPUT_DIR, "articles")

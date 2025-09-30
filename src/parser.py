@@ -1,5 +1,5 @@
 from bs4 import BeautifulSoup
-import config
+from . import config
 
 def extract_toc_links(html_content):
     """

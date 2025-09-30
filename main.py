@@ -4,11 +4,11 @@ import os
 import sys
 
 # Import modularized components
-import config
-from scraper import Scraper
-from logger import setup_logger
-import file_manager
-from ui import print_header, print_fatal_error
+from src import config
+from src.scraper import Scraper
+from src.logger import setup_logger
+from src import file_manager
+from src.ui import print_header, print_fatal_error
 
 async def main():
     """Main function to orchestrate the scraping process."""
