@@ -66,7 +66,7 @@
 ## Аргументы командной строки
 
 ```bash
-usage: its.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]] 
+usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]] 
               [--no-scrape] [--force-reindex] url
 
 Аргументы:
@@ -103,22 +103,22 @@ usage: its.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markd
 
 * Скрапинг всего раздела в форматах JSON, PDF и TXT:
 ```bash
-python its.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt
+python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt
 ```
 
 * Скрапинг только одной главы во всех форматах:
 ```bash
-python its.py https://its.1c.ru/db/erp25ltsdoc --chapter "Описание отдельных учетных задач"
+python main.py https://its.1c.ru/db/erp25ltsdoc --chapter "Описание отдельных учетных задач"
 ```
 
 * Скрапинг всего раздела в формате PDF:
 ```bash
-python its.py https://its.1c.ru/db/erp25ltsdoc --format pdf
+python main.py https://its.1c.ru/db/erp25ltsdoc --format pdf
 ```
 
 * Создание индекса без скрапинга:
 ```bash
-python its.py https://its.1c.ru/db/erp25ltsdoc --no-scrape
+python main.py https://its.1c.ru/db/erp25ltsdoc --no-scrape
 ```
 
 
