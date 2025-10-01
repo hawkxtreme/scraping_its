@@ -65,13 +65,26 @@
 
 ## Аргументы командной строки
 
+Для получения справки по всем доступным командам используйте:
+
+```bash
+python main.py --help
+# или
+python main.py -h
+```
+
+Будет отображен список всех доступных аргументов и их описание.
+
+Все доступные команды
+
 ```bash
 usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]] 
               [--no-scrape] [--force-reindex] url
 
 Аргументы:
-  url                   URL раздела для скрапинга
-  -c, --chapter         Название главы для выборочного скрапинга
+  url                  URL раздела для скрапинга
+  -h, --help           Вывести справку о командах
+  -c, --chapter        Название главы для выборочного скрапинга
   -f, --format         Форматы выходных файлов (можно указать несколько)
   --no-scrape          Только создать индекс без скрапинга статей
   --force-reindex      Принудительно обновить индекс статей
@@ -101,9 +114,9 @@ usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,mark
 
 ## Примеры использования
 
-* Скрапинг всего раздела в форматах JSON, PDF и TXT:
+* Скрапинг всего раздела в форматах JSON, PDF, TXT, MARKDOWN:
 ```bash
-python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt
+python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt markdown
 ```
 
 * Скрапинг только одной главы во всех форматах:
