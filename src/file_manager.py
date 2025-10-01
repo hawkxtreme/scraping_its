@@ -1,6 +1,8 @@
 import os
 import shutil
 import json
+import re
+from urllib.parse import urlparse
 import markdownify
 
 from . import config
@@ -18,57 +20,95 @@ def setup_output_directories():
     os.makedirs(config.MARKDOWN_DIR, exist_ok=True)
     os.makedirs(config.TMP_INDEX_DIR, exist_ok=True)
 
-def save_article_content(filename_base, formats, soup_content, article_info):
-    """Saves the article content in the specified formats (excluding PDF)."""
-    content_div = soup_content.find('body')
-    if not content_div:
-        return # Or raise an error
+def save_article_json(article_data):
+    """Save article in JSON format."""
+    if not os.path.exists(config.JSON_DIR):
+        os.makedirs(config.JSON_DIR)
 
-    if 'json' in formats or 'txt' in formats or 'markdown' in formats:
-        article_text = content_div.get_text(separator='\n', strip=True)
-        
-        if 'json' in formats:
-            path = os.path.join(config.JSON_DIR, f"{filename_base}.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"title": article_info['title'], "url": article_info['url'], "content": article_text}, f, ensure_ascii=False, indent=4)
-        
-        if 'txt' in formats:
-            path = os.path.join(config.TXT_DIR, f"{filename_base}.txt")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(article_text)
-                
-        if 'markdown' in formats:
-            path = os.path.join(config.MARKDOWN_DIR, f"{filename_base}.md")
-            # Convert only the content_div to markdown
-            md_content = markdownify.markdownify(str(content_div), heading_style="ATX")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(md_content)
+    # Get just the path component of the URL for the filename
+    url_path = urlparse(article_data['url']).path
+    safe_filename = re.sub(r'[^\w\-_.]', '_', url_path.strip('/'))
+    
+    json_file = os.path.join(config.JSON_DIR, f"{safe_filename}.json")
+    with open(json_file, 'w', encoding='utf-8') as f:
+        json.dump(article_data, f, ensure_ascii=False, indent=2)
 
-def save_index_data(article_info):
-    """Saves temporary index data for an article."""
-    index_data = {
-        "title": article_info["title"],
-        "url": article_info["url"],
-        "original_order": article_info.get("original_order", 9999)
+def _save_article_json_and_txt_legacy(content, article_info):
+    """Save article content in both JSON and TXT formats."""
+    article_data = {
+        'url': article_info['url'],
+        'title': article_info['title'],
+        'content': content
     }
-    # Use a hash of the URL for a unique, filesystem-safe filename
-    index_filename = f"{hash(article_info['url'])}.json"
-    path = os.path.join(config.TMP_INDEX_DIR, index_filename)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(index_data, f)
+    save_article_json(article_data)
+
+    # TXT format
+    if not os.path.exists(config.TXT_DIR):
+        os.makedirs(config.TXT_DIR)
+    
+    # Get just the path component of the URL for the filename
+    url_path = urlparse(article_info['url']).path
+    safe_filename = re.sub(r'[^\w\-_.]', '_', url_path.strip('/'))
+    
+    txt_file = os.path.join(config.TXT_DIR, f"{safe_filename}.txt")
+    with open(txt_file, 'w', encoding='utf-8') as f:
+        f.write(f"Title: {article_info['title']}\n")
+        f.write(f"URL: {article_info['url']}\n\n")
+        f.write(content)
+def save_article_content(filename_base, formats, soup, article_info):
+    """
+    Сохраняет статью в указанных форматах (txt, json, markdown, pdf) по имени файла.
+    - filename_base: базовое имя файла (без расширения)
+    - formats: список форматов (например, ['txt', 'json', 'markdown'])
+    - soup: BeautifulSoup-объект с содержимым статьи
+    - article_info: словарь с метаданными статьи
+    """
+    text_content = soup.get_text(separator='\n', strip=True)
+    article_data = {
+        'url': article_info['url'],
+        'title': article_info['title'],
+        'content': text_content
+    }
+
+    # JSON
+    if 'json' in formats:
+        json_file = os.path.join(config.JSON_DIR, f"{filename_base}.json")
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(article_data, f, ensure_ascii=False, indent=2)
+
+    # TXT
+    if 'txt' in formats:
+        txt_file = os.path.join(config.TXT_DIR, f"{filename_base}.txt")
+        with open(txt_file, 'w', encoding='utf-8') as f:
+            f.write(f"Title: {article_info['title']}\n")
+            f.write(f"URL: {article_info['url']}\n\n")
+            f.write(text_content)
+
+    # Markdown
+    if 'markdown' in formats:
+        md_file = os.path.join(config.MARKDOWN_DIR, f"{filename_base}.md")
+        md_content = markdownify.markdownify(str(soup), heading_style="ATX")
+        with open(md_file, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+
+    # PDF сохраняется отдельно через scraper._save_as_pdf
+
+def save_index_data(articles_list):
+    """Saves temporary index data for articles."""
+    os.makedirs(config.TMP_INDEX_DIR, exist_ok=True)
+    index_file = os.path.join(config.TMP_INDEX_DIR, "index.json")
+    
+    with open(index_file, 'w', encoding='utf-8') as f:
+        json.dump(articles_list, f, ensure_ascii=False, indent=2)
 
 def load_and_sort_index():
-    """Loads all temporary index files and returns a sorted list of articles."""
-    final_articles_list = []
-    for filename in os.listdir(config.TMP_INDEX_DIR):
-        if filename.endswith('.json'):
-            path = os.path.join(config.TMP_INDEX_DIR, filename)
-            with open(path, "r", encoding="utf-8") as f:
-                final_articles_list.append(json.load(f))
-    
-    # Sort by original order (from TOC), then by title as a fallback
-    final_articles_list.sort(key=lambda x: (x.get('original_order', 9999), x['title']))
-    return final_articles_list
+    """Loads the index file and returns the list of articles."""
+    index_file = os.path.join(config.TMP_INDEX_DIR, "index.json")
+    if not os.path.exists(index_file):
+        return []
+        
+    with open(index_file, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def cleanup_temp_files():
     """Removes temporary directories."""

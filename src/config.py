@@ -46,6 +46,7 @@ async def check_dependencies(log_func):
     Returns:
         bool: True if all checks pass, False otherwise.
     """
+    success = True
     log_func("Step 1: Checking dependencies...")
 
     # Check for required libraries
@@ -54,7 +55,9 @@ async def check_dependencies(log_func):
         import dotenv
         import bs4
         import markdownify
+        log_func("  - [OK] All required libraries are installed.")
     except ImportError as e:
+        success = False
         log_func(f"[ERROR] A required library is not installed: {e.name}")
         log_func("Please install the required libraries by running the following command:")
         log_func("pip install -r requirements.txt")
@@ -63,10 +66,12 @@ async def check_dependencies(log_func):
 
     # Check credentials
     if not LOGIN_1C_USER or not LOGIN_1C_PASSWORD or LOGIN_1C_USER == "your_username":
+        success = False
         log_func("  - [FAIL] Credentials not found in .env file.")
         log_func("Result: Failed - Credentials not set.")
         return False
-    log_func("  - [OK] Credentials found.")
+    else:
+        log_func("  - [OK] Credentials found.")
 
     # Check browserless service
     try:
@@ -75,10 +80,13 @@ async def check_dependencies(log_func):
             await browser.close()
         log_func(f"  - [OK] Browserless service is running at {BROWSERLESS_URL}.")
     except Exception as e:
+        success = False
         log_func(f"  - [FAIL] Browserless service not found at {BROWSERLESS_URL}.")
         log_func(f"    Error: {e}")
         log_func(f"Result: Failed - Browserless service not available: {e}")
         return False
 
-    log_func("All dependency checks passed.")
-    return True
+    if success:
+        log_func("All dependency checks passed.")
+
+    return success

@@ -14,6 +14,7 @@ class Scraper:
 
     def __init__(self, log_func):
         self.log = log_func
+        self.playwright = None
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.scraped_content_hashes = set()
@@ -51,7 +52,7 @@ class Scraper:
             self.log(f"FATAL: Login failed: {e}")
             raise # Re-raise the exception to be caught by the main loop
         finally:
-            if page: await page.close()
+            await self._safely_close_page(page)
 
     async def get_initial_toc(self, url, target_chapter):
         """Scrapes the initial table of contents."""
@@ -75,7 +76,7 @@ class Scraper:
             self.log(f"FATAL: Failed to get initial TOC: {e}")
             raise
         finally:
-            if page: await page.close()
+            await self._safely_close_page(page)
 
     async def discover_articles(self, initial_links):
         """Discovers all unique articles by crawling from the initial TOC."""
@@ -83,6 +84,7 @@ class Scraper:
         
         queue = initial_links[:]
         processed_urls = set()
+        all_articles_to_index = [] # New list to collect all articles
         i = 0
         while i < len(queue):
             article_info = queue[i]
@@ -107,7 +109,7 @@ class Scraper:
 
                 if content_hash not in self.scraped_content_hashes:
                     self.scraped_content_hashes.add(content_hash)
-                    file_manager.save_index_data(article_info)
+                    all_articles_to_index.append(article_info) # Add to the list instead of saving immediately
                 
                 processed_urls.add(url_without_fragment)
 
@@ -121,8 +123,12 @@ class Scraper:
                 # In a real-world scenario, you might add retry logic here
             finally:
                 i += 1
-                if page: await page.close()
+                await self._safely_close_page(page)
         
+        # Save all discovered articles to the index once after the loop
+        if all_articles_to_index:
+            file_manager.save_index_data(all_articles_to_index)
+
         print_progress(len(queue), len(queue), "Discovering", "Done!")
 
     async def scrape_final_articles(self, articles_to_scrape, formats):
@@ -160,8 +166,16 @@ class Scraper:
                 self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
                 continue # Skip to the next article
             finally:
-                if page: await page.close()
+                await self._safely_close_page(page)
         print_progress(total_articles, total_articles, "Scraping", "Done!")
+
+    async def _safely_close_page(self, page: Page):
+        """Helper function to safely close a page."""
+        try:
+            if page:
+                await page.close()
+        except Exception as e:
+            self.log(f"Warning: Error closing page: {e}")
 
     async def _save_as_pdf(self, page: Page, path: str):
         """Helper function to save a page as a PDF, trying the print-friendly link first."""
