@@ -11,6 +11,7 @@ def setup_logger(output_dir):
     Returns:
         function: A function that can be called to log messages.
     """
+    os.makedirs(output_dir, exist_ok=True)
     log_file_path = os.path.join(output_dir, "script_log.txt")
     
     # Ensure the log file is empty before starting

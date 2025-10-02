@@ -65,9 +65,12 @@ async def check_dependencies(log_func):
         return False
 
     # Check credentials
-    if not LOGIN_1C_USER or not LOGIN_1C_PASSWORD or LOGIN_1C_USER == "your_username":
+    if (not LOGIN_1C_USER or LOGIN_1C_USER == "your_login" or
+            not LOGIN_1C_PASSWORD or LOGIN_1C_PASSWORD == "your_password"):
         success = False
-        log_func("  - [FAIL] Credentials not found in .env file.")
+        error_msg = "Credentials not found or are default in .env file. Please create and fill out the .env file."
+        print(error_msg)
+        log_func(f"  - [FAIL] {error_msg}")
         log_func("Result: Failed - Credentials not set.")
         return False
     else:
@@ -81,7 +84,9 @@ async def check_dependencies(log_func):
         log_func(f"  - [OK] Browserless service is running at {BROWSERLESS_URL}.")
     except Exception as e:
         success = False
-        log_func(f"  - [FAIL] Browserless service not found at {BROWSERLESS_URL}.")
+        error_msg = f"Browserless service not found at {BROWSERLESS_URL}."
+        print(error_msg)
+        log_func(f"  - [FAIL] {error_msg}")
         log_func(f"    Error: {e}")
         log_func(f"Result: Failed - Browserless service not available: {e}")
         return False
