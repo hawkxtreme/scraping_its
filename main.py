@@ -2,7 +2,10 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 import warnings
+import concurrent.futures
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
 
@@ -11,10 +14,15 @@ from src import config
 from src.scraper import Scraper
 from src.logger import setup_logger
 from src import file_manager
-from src.ui import print_header, print_fatal_error, print_progress
+from src.ui import print_header, print_fatal_error
 
 async def main():
     """Main function to orchestrate the scraping process."""
+    # Set stdout encoding to UTF-8
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
+        
+    start_time = time.monotonic()
     print_header()
     log_func = setup_logger(config.OUTPUT_DIR)
 
@@ -25,6 +33,7 @@ async def main():
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
+    parser.add_argument("-p", "--parallel", type=int, default=1, help="Number of parallel download streams.")
     args = parser.parse_args()
 
     scraper_instance = Scraper(log_func)
@@ -60,21 +69,45 @@ async def main():
 
         # --- Step 4: Final Scraping ---
         if not args.no_scrape:
-            print("\nStep 4: Starting final scrape...")
-            log_func("Step 4: Starting final scrape...")
+            print(f"\nStep 4: Starting final scrape using {args.parallel} parallel stream(s)...")
+            log_func(f"Step 4: Starting final scrape using {args.parallel} parallel stream(s)...")
+            
             articles_to_scrape = file_manager.load_index_data()
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
-            
-            total_articles = len(articles_to_scrape)
-            for i, article_info in enumerate(articles_to_scrape):
+
+            # Wrapper for running async function in a separate thread
+            def scrape_article_threaded(article_info, index, pbar):
+                # Each thread needs its own event loop
+                asyncio.run(scrape_single_article_wrapper(article_info, index, pbar))
+
+            async def scrape_single_article_wrapper(article_info, index, pbar):
                 scraper = Scraper(log_func)
                 try:
                     await scraper.connect()
                     await scraper.login()
-                    await scraper.scrape_single_article(article_info, args.format, i, total_articles)
+                    await scraper.scrape_single_article(article_info, args.format, index, pbar)
+                except Exception as e:
+                    log_func(f"Error scraping {article_info.get('url')}: {e}")
                 finally:
                     await scraper.close()
+
+            with tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article") as pbar:
+                if args.parallel > 1:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
+                        # Submit tasks to the executor
+                        futures = [executor.submit(scrape_article_threaded, article_info, i, pbar) for i, article_info in enumerate(articles_to_scrape)]
+                        
+                        # Wait for all futures to complete
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result()  # Retrieve result or raise exception
+                            except Exception as e:
+                                log_func(f"A thread generated an exception: {e}")
+                else:
+                    # Run sequentially if parallel is 1
+                    for i, article_info in enumerate(articles_to_scrape):
+                        await scrape_single_article_wrapper(article_info, i, pbar)
 
         else:
             print("\n--no-scrape flag is set. Exiting without scraping full articles.")
@@ -92,7 +125,18 @@ async def main():
         file_manager.cleanup_temp_files()
         print("Cleanup complete.")
         log_func("Cleanup complete.")
-        sys.stderr = open(os.devnull, 'w')
+        
+        end_time = time.monotonic()
+        elapsed_time = end_time - start_time
+        minutes, seconds = divmod(elapsed_time, 60)
+        time_str = f"Total execution time: {int(minutes)} minutes {int(seconds)} seconds."
+        print(f"\n{time_str}")
+        log_func(time_str)
+        
+        # Redirect stderr to devnull to suppress potential cleanup errors on exit
+        # This can be removed if debugging cleanup issues
+        if not sys.platform == "win32":
+            sys.stderr = open(os.devnull, 'w')
 
 if __name__ == "__main__":
     try:

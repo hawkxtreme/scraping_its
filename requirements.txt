@@ -5,3 +5,4 @@ html2text
 aiohttp
 markdownify
 pytest
+tqdm

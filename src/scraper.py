@@ -2,12 +2,12 @@ import asyncio
 import os
 from playwright.async_api import async_playwright, Error as PlaywrightError, Page, Browser, BrowserContext
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 # Import modularized components
 from . import config
 from . import parser
 from . import file_manager
-from .ui import print_progress
 
 class Scraper:
     """Manages all web scraping operations using Playwright."""
@@ -86,68 +86,67 @@ class Scraper:
         queue = initial_links[:]
         processed_urls = set()
         all_articles_to_index = [] # New list to collect all articles
-        i = 0
-        while i < len(queue):
-            article_info = queue[i]
-            try:
-                url_without_fragment = article_info['url'].split('#')[0]
-                print_progress(i, len(queue), "Discovering", article_info['title'])
-
-                if url_without_fragment in processed_urls:
-                    i += 1
-                    continue
-
-                page = None
-                try:
-                    page = await self.context.new_page()
-                    await page.goto(article_info['url'], timeout=90000)
-                    await page.wait_for_load_state('networkidle')
-                    parser_module = parser.get_parser_for_url(article_info['url'])
-
-                    if parser_module.__name__ == 'src.parser_v2':
-                        # New parser logic: get content from the main page
-                        content_html = await page.content()
-                        soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
-                    else:
-                        # Old parser logic: get content from the iframe
-                        article_frame = page.frame(name="w_metadata_doc_frame")
-                        if not article_frame:
-                            raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
-                        iframe_html = await article_frame.content()
-                        soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
-
-                    if content_hash not in self.scraped_content_hashes:
-                        self.scraped_content_hashes.add(content_hash)
-                        all_articles_to_index.append(article_info) # Add to the list instead of saving immediately
-                    
-                    processed_urls.add(url_without_fragment)
-
-                    for link_info in nested_links:
-                        if link_info['url'].split('#')[0] not in processed_urls:
-                            queue.append(link_info)
-                    
-                    await asyncio.sleep(0.2) # Be respectful to the server
-                finally:
-                    await self._safely_close_page(page)
-                i += 1
-            except Exception as e:
-                self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
-                if "Target page, context or browser has been closed" in str(e):
-                    self.log("Attempting to reconnect to the browser...")
-                    await self.connect()
-                    await self.login()
-                else:
-                    i += 1
         
-        # Save all discovered articles to the index once after the loop
+        with tqdm(total=len(queue), desc="Discovering Articles", unit="article") as pbar:
+            i = 0
+            while i < len(queue):
+                article_info = queue[i]
+                try:
+                    url_without_fragment = article_info['url'].split('#')[0]
+
+                    if url_without_fragment in processed_urls:
+                        i += 1
+                        pbar.update(1)
+                        continue
+
+                    page = None
+                    try:
+                        page = await self.context.new_page()
+                        await page.goto(article_info['url'], timeout=90000)
+                        await page.wait_for_load_state('networkidle')
+                        parser_module = parser.get_parser_for_url(article_info['url'])
+
+                        if parser_module.__name__ == 'src.parser_v2':
+                            content_html = await page.content()
+                            soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
+                        else:
+                            article_frame = page.frame(name="w_metadata_doc_frame")
+                            if not article_frame:
+                                raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
+                            iframe_html = await article_frame.content()
+                            soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
+
+                        if content_hash not in self.scraped_content_hashes:
+                            self.scraped_content_hashes.add(content_hash)
+                            all_articles_to_index.append(article_info)
+                        
+                        processed_urls.add(url_without_fragment)
+
+                        for link_info in nested_links:
+                            if link_info['url'].split('#')[0] not in processed_urls:
+                                queue.append(link_info)
+                                pbar.total = len(queue)
+                        
+                        await asyncio.sleep(0.2)
+                    finally:
+                        await self._safely_close_page(page)
+                    i += 1
+                    pbar.update(1)
+                except Exception as e:
+                    self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
+                    if "Target page, context or browser has been closed" in str(e):
+                        self.log("Attempting to reconnect to the browser...")
+                        await self.connect()
+                        await self.login()
+                    else:
+                        i += 1
+                        pbar.update(1)
+        
         if all_articles_to_index:
             file_manager.save_index_data(all_articles_to_index)
 
-        print_progress(len(queue), len(queue), "Discovering", "Done!")
-
-    async def scrape_single_article(self, article_info, formats, i, total_articles):
+    async def scrape_single_article(self, article_info, formats, i, pbar):
         """Scrapes the final content for a single article."""
-        print_progress(i + 1, total_articles, "Scraping", article_info['title'])
         page = None
         try:
             page = await self.context.new_page()
@@ -157,34 +156,30 @@ class Scraper:
             parser_module = parser.get_parser_for_url(article_info['url'])
 
             if parser_module.__name__ == 'src.parser_v2':
-                # New parser logic: get content from the main page
                 content_html = await page.content()
                 soup, _, _ = parser_module.parse_article_page(content_html)
             else:
-                # Old parser logic: get content from the iframe
                 article_frame = page.frame(name="w_metadata_doc_frame")
                 if not article_frame:
                     raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
                 iframe_html = await article_frame.content()
                 soup, _, _ = parser_module.parse_article_page(iframe_html)
 
-
             number = f"{i+1:03d}"
             sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
-            filename_base = f"{number}_{sanitized_title[:50]}" # Truncate long titles
+            filename_base = f"{number}_{sanitized_title[:50]}"
 
-            # Save text-based formats
             file_manager.save_article_content(filename_base, formats, soup, article_info)
             
-            # Save PDF format
             if 'pdf' in formats:
                 pdf_path = os.path.join(config.PDF_DIR, f"{filename_base}.pdf")
                 await self._save_as_pdf(page, pdf_path)
             
-            await asyncio.sleep(0.5) # Be respectful
+            await asyncio.sleep(0.5)
         except Exception as e:
             self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
         finally:
+            pbar.update(1)
             await self._safely_close_page(page)
 
     async def _safely_close_page(self, page: Page):
@@ -199,7 +194,6 @@ class Scraper:
         """Helper function to save a page as a PDF, trying the print-friendly link first."""
         print_page = None
         try:
-            # Check for a print-friendly version link
             print_link_element = await page.query_selector('#w_metadata_print_href')
             if print_link_element:
                 print_url = await print_link_element.get_attribute('href')
@@ -215,14 +209,12 @@ class Scraper:
                         f.write(pdf_bytes)
                     return
 
-            # Fallback to printing the main page if no print link is found
             pdf_bytes = await page.pdf(format='A4', print_background=True)
             with open(path, "wb") as f:
                 f.write(pdf_bytes)
 
         except Exception as e:
             self.log(f"    - Could not save PDF for {page.url}: {e}")
-            # Optionally, create an empty file or a text file with the error
             with open(f"{path}.error.txt", "w") as f:
                 f.write(f"Failed to generate PDF due to: {e}")
         finally:

@@ -79,7 +79,7 @@ python main.py -h
 
 ```bash
 usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]] 
-              [--no-scrape] [--force-reindex] url
+              [--no-scrape] [--force-reindex] [-p PARALLEL] url
 
 Аргументы:
   url                  URL раздела для скрапинга
@@ -88,6 +88,7 @@ usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,mark
   -f, --format         Форматы выходных файлов json, pdf, txt, markdown (можно указать несколько)
   --no-scrape          Только создать индекс без скрапинга статей
   --force-reindex      Принудительно обновить индекс статей
+  -p, --parallel       Количество параллельных потоков для скачивания (по умолчанию 1)
 ```
 
 ## Поддерживаемые форматы
@@ -124,9 +125,9 @@ python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt markdown
 python main.py https://its.1c.ru/db/erp25ltsdoc --chapter "Описание отдельных учетных задач"
 ```
 
-* Скрапинг всего раздела в формате PDF:
+* Скрапинг всего раздела в формате PDF с использованием 8 потоков:
 ```bash
-python main.py https://its.1c.ru/db/erp25ltsdoc --format pdf
+python main.py https://its.1c.ru/db/erp25ltsdoc --format pdf -p 8
 ```
 
 * Создание индекса без скрапинга:
@@ -139,7 +140,6 @@ python main.py https://its.1c.ru/db/erp25ltsdoc --no-scrape
 * Автоматическое создание файла оглавления с ссылками на выгруженные статьи
 * Улучшение логирования и информативности ошибок
 * Поддержка формата DOCX
-* Возможность параллельного скрапинга
 * Система кэширования для ускорения повторной загрузки
 * Поддержка консольных аргументов для настройки таймаутов и ограничений
 * Добавление режима обновления существующих файлов
