@@ -16,8 +16,11 @@ from src.logger import setup_logger
 from src import file_manager
 from src.ui import print_header, print_fatal_error
 
+import nest_asyncio
+
 async def main():
     """Main function to orchestrate the scraping process."""
+    nest_asyncio.apply()
     # Set stdout encoding to UTF-8
     if sys.stdout.encoding != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
@@ -76,11 +79,6 @@ async def main():
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
 
-            # Wrapper for running async function in a separate thread
-            def scrape_article_threaded(article_info, index, pbar):
-                # Each thread needs its own event loop
-                asyncio.run(scrape_single_article_wrapper(article_info, index, pbar))
-
             async def scrape_single_article_wrapper(article_info, index, pbar):
                 scraper = Scraper(log_func)
                 try:
@@ -92,20 +90,20 @@ async def main():
                 finally:
                     await scraper.close()
 
-            with tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article") as pbar:
-                if args.parallel > 1:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
-                        # Submit tasks to the executor
-                        futures = [executor.submit(scrape_article_threaded, article_info, i, pbar) for i, article_info in enumerate(articles_to_scrape)]
-                        
-                        # Wait for all futures to complete
-                        for future in concurrent.futures.as_completed(futures):
-                            try:
-                                future.result()  # Retrieve result or raise exception
-                            except Exception as e:
-                                log_func(f"A thread generated an exception: {e}")
-                else:
-                    # Run sequentially if parallel is 1
+            if args.parallel > 1:
+                pbar = tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article")
+                semaphore = asyncio.Semaphore(args.parallel)
+
+                async def run_with_semaphore(article_info, index):
+                    async with semaphore:
+                        await scrape_single_article_wrapper(article_info, index, pbar)
+                
+                tasks = [run_with_semaphore(article_info, i) for i, article_info in enumerate(articles_to_scrape)]
+                await asyncio.gather(*tasks)
+                pbar.close()
+            else:
+                # Run sequentially if parallel is 1
+                with tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article") as pbar:
                     for i, article_info in enumerate(articles_to_scrape):
                         await scrape_single_article_wrapper(article_info, i, pbar)
 
@@ -135,8 +133,7 @@ async def main():
         
         # Redirect stderr to devnull to suppress potential cleanup errors on exit
         # This can be removed if debugging cleanup issues
-        if not sys.platform == "win32":
-            sys.stderr = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
 
 if __name__ == "__main__":
     try:

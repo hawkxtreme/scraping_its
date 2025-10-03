@@ -83,65 +83,77 @@ class Scraper:
         """Discovers all unique articles by crawling from the initial TOC."""
         self.log("Step 4: Discovering and Indexing...")
         
-        queue = initial_links[:]
-        processed_urls = set()
-        all_articles_to_index = [] # New list to collect all articles
-        
-        with tqdm(total=len(queue), desc="Discovering Articles", unit="article") as pbar:
-            i = 0
-            while i < len(queue):
-                article_info = queue[i]
-                try:
-                    url_without_fragment = article_info['url'].split('#')[0]
+        queue = asyncio.Queue()
+        for link in initial_links:
+            await queue.put(link)
 
+        processed_urls = set()
+        all_articles_to_index = []
+        
+        pbar = tqdm(total=len(initial_links), desc="Discovering Articles", unit="article")
+        semaphore = asyncio.Semaphore(8) # Let's use 8 parallel workers
+
+        async def worker():
+            while True:
+                try:
+                    article_info = await queue.get()
+                    
+                    url_without_fragment = article_info['url'].split('#')[0]
                     if url_without_fragment in processed_urls:
-                        i += 1
+                        queue.task_done()
                         pbar.update(1)
                         continue
 
-                    page = None
-                    try:
-                        page = await self.context.new_page()
-                        await page.goto(article_info['url'], timeout=90000)
-                        await page.wait_for_load_state('networkidle')
-                        parser_module = parser.get_parser_for_url(article_info['url'])
+                    async with semaphore:
+                        page = None
+                        try:
+                            page = await self.context.new_page()
+                            await page.goto(article_info['url'], timeout=90000)
+                            await page.wait_for_load_state('networkidle')
+                            parser_module = parser.get_parser_for_url(article_info['url'])
 
-                        if parser_module.__name__ == 'src.parser_v2':
-                            content_html = await page.content()
-                            soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
-                        else:
-                            article_frame = page.frame(name="w_metadata_doc_frame")
-                            if not article_frame:
-                                raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
-                            iframe_html = await article_frame.content()
-                            soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
+                            if parser_module.__name__ == 'src.parser_v2':
+                                content_html = await page.content()
+                                soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
+                            else:
+                                article_frame = page.frame(name="w_metadata_doc_frame")
+                                if not article_frame:
+                                    raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
+                                iframe_html = await article_frame.content()
+                                soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
 
-                        if content_hash not in self.scraped_content_hashes:
-                            self.scraped_content_hashes.add(content_hash)
-                            all_articles_to_index.append(article_info)
-                        
-                        processed_urls.add(url_without_fragment)
+                            if content_hash not in self.scraped_content_hashes:
+                                self.scraped_content_hashes.add(content_hash)
+                                all_articles_to_index.append(article_info)
+                            
+                            processed_urls.add(url_without_fragment)
 
-                        for link_info in nested_links:
-                            if link_info['url'].split('#')[0] not in processed_urls:
-                                queue.append(link_info)
-                                pbar.total = len(queue)
-                        
-                        await asyncio.sleep(0.2)
-                    finally:
-                        await self._safely_close_page(page)
-                    i += 1
-                    pbar.update(1)
-                except Exception as e:
-                    self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
-                    if "Target page, context or browser has been closed" in str(e):
-                        self.log("Attempting to reconnect to the browser...")
-                        await self.connect()
-                        await self.login()
-                    else:
-                        i += 1
-                        pbar.update(1)
-        
+                            for link_info in nested_links:
+                                if link_info['url'].split('#')[0] not in processed_urls:
+                                    pbar.total += 1
+                                    await queue.put(link_info)
+                            
+                            pbar.update(1)
+
+                        except Exception as e:
+                            self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
+                        finally:
+                            await self._safely_close_page(page)
+                            queue.task_done()
+                except asyncio.CancelledError:
+                    break
+
+        tasks = [asyncio.create_task(worker()) for _ in range(8)]
+
+        await queue.join()
+
+        for task in tasks:
+            task.cancel()
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        pbar.close()
+
         if all_articles_to_index:
             file_manager.save_index_data(all_articles_to_index)
 
@@ -176,10 +188,10 @@ class Scraper:
                 await self._save_as_pdf(page, pdf_path)
             
             await asyncio.sleep(0.5)
+            pbar.update(1)
         except Exception as e:
             self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
         finally:
-            pbar.update(1)
             await self._safely_close_page(page)
 
     async def _safely_close_page(self, page: Page):
