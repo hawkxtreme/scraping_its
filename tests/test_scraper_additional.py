@@ -32,7 +32,7 @@ async def test_scraper_save_as_pdf_error_handling(mock_logger, monkeypatch):
 async def test_scraper_save_as_pdf_with_print_link_fallback(mock_logger, mock_playwright, monkeypatch):
     """Тест сохранения PDF с fallback на основную страницу при проблемах с print-ссылкой."""
     # Extract components from fixture
-    mock_page = mock_playwright.context.new_page.return_value
+    mock_page = MagicMock()
     mock_page.url = "https://its.1c.ru/db/article_main"
     mock_page.query_selector = AsyncMock()
     
@@ -45,10 +45,11 @@ async def test_scraper_save_as_pdf_with_print_link_fallback(mock_logger, mock_pl
     mock_print_page.goto = AsyncMock(side_effect=Exception("Print page error"))
     mock_print_page.close = AsyncMock()
 
-    mock_playwright.context.new_page = AsyncMock(return_value=mock_print_page)
+    mock_context = MagicMock()
+    mock_context.new_page = AsyncMock(return_value=mock_print_page)
 
     scraper = Scraper(mock_logger)
-    scraper.context = mock_playwright.context
+    scraper.context = mock_context
 
     # Мок для основного pdf метода
     mock_page.pdf = AsyncMock(return_value=b"main_pdf_content")
@@ -90,17 +91,41 @@ async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_p
     ]
     
     # Extract components from fixture
-    mock_page = mock_playwright.context.new_page.return_value
     mock_frame = MagicMock()
     mock_frame.content = AsyncMock(return_value="""
     <body>
         <div class="article-content">Test content</div>
     </body>
     """)
-    mock_page.frame = AsyncMock(return_value=mock_frame)
-    mock_page.goto = AsyncMock()
-    mock_page.wait_for_load_state = AsyncMock()
-    mock_page.close = AsyncMock()
+    
+    # Создаем отдельные mock_page для каждого вызова new_page()
+    mock_page1 = MagicMock()
+    mock_page1.frame = AsyncMock(return_value=mock_frame)
+    mock_page1.goto = AsyncMock()
+    mock_page1.wait_for_load_state = AsyncMock()
+    mock_page1.close = AsyncMock()
+    
+    mock_page2 = MagicMock()
+    mock_page2.frame = AsyncMock(return_value=mock_frame)
+    mock_page2.goto = AsyncMock()
+    mock_page2.wait_for_load_state = AsyncMock()
+    mock_page2.close = AsyncMock()
+    
+    # Мокаем context.new_page, чтобы он возвращал разные страницы
+    new_page_calls = [mock_page1, mock_page2]  # Только 2 уникальные страницы
+    call_count = 0
+    
+    async def mock_new_page():
+        nonlocal call_count
+        if call_count < len(new_page_calls):
+            result = new_page_calls[call_count]
+            call_count += 1
+            return result
+        else:
+            # Возвращаем последнюю страницу, если вызовов больше
+            return new_page_calls[-1]
+    
+    mock_playwright.context.new_page = AsyncMock(side_effect=mock_new_page)
     
     # Create a mock for the result of async_playwright() that has start() method
     mock_async_playwright_result = MagicMock()
@@ -108,7 +133,7 @@ async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_p
     
     with patch("src.scraper.async_playwright", return_value=mock_async_playwright_result):
         with patch.object(file_manager, 'save_index_data', new_callable=AsyncMock) as mock_save_index_data:
-            with patch.object(parser, 'parse_article_page', return_value=(MagicMock(), [], 123)) as mock_parse_article_page:
+            with patch('src.parser_v1.parse_article_page', return_value=(MagicMock(), [], 123)) as mock_parse_article_page:
                 scraper = Scraper(mock_logger)
                 await scraper.connect()
                 await scraper.discover_articles(initial_links)
@@ -117,12 +142,13 @@ async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_p
                 # Всего 2 уникальных URL: article1 и article2
                 # article1 встречается 2 раза, но обрабатывается 1 раз
                 assert mock_async_playwright_result.start.call_count == 1
-                assert mock_page.goto.call_count == 2  # Только для уникальных URL
+                # Проверяем, что goto был вызван для уникальных URL
+                assert mock_playwright.context.new_page.call_count == 2  # 2 уникальных URL
                 mock_save_index_data.assert_called_once()
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_scraper_scrape_final_articles_with_special_characters_in_title(mock_logger, mock_playwright):
+async def test_scraper_scrape_single_article_with_special_characters_in_title(mock_logger, mock_playwright):
     """Тест скрапинга статей со специальными символами в заголовке."""
     articles_to_scrape = [
         {"url": "https://its.1c.ru/db/article1", "title": "Article with / and ? and #"},
@@ -131,13 +157,37 @@ async def test_scraper_scrape_final_articles_with_special_characters_in_title(mo
     formats = ['json']
 
     # Extract components from fixture
-    mock_page = mock_playwright.context.new_page.return_value
     mock_frame = MagicMock()
     mock_frame.content = AsyncMock(return_value="<body>Test Content</body>")
-    mock_page.frame = MagicMock(return_value=mock_frame)
-    mock_page.goto = AsyncMock()
-    mock_page.wait_for_load_state = AsyncMock()
-    mock_page.close = AsyncMock()
+    
+    # Создаем отдельные mock_page для каждого вызова new_page()
+    mock_page1 = MagicMock()
+    mock_page1.frame = MagicMock(return_value=mock_frame)
+    mock_page1.goto = AsyncMock()
+    mock_page1.wait_for_load_state = AsyncMock()
+    mock_page1.close = AsyncMock()
+    
+    mock_page2 = MagicMock()
+    mock_page2.frame = MagicMock(return_value=mock_frame)
+    mock_page2.goto = AsyncMock()
+    mock_page2.wait_for_load_state = AsyncMock()
+    mock_page2.close = AsyncMock()
+    
+    # Мокаем context.new_page, чтобы он возвращал разные страницы
+    new_page_calls = [mock_page1, mock_page2]
+    call_count = 0
+    
+    async def mock_new_page():
+        nonlocal call_count
+        if call_count < len(new_page_calls):
+            result = new_page_calls[call_count]
+            call_count += 1
+            return result
+        else:
+            # Возвращаем последнюю страницу, если вызовов больше
+            return new_page_calls[-1]
+    
+    mock_playwright.context.new_page = AsyncMock(side_effect=mock_new_page)
 
     # Create a mock for the result of async_playwright() that has start() method
     mock_async_playwright_result = MagicMock()
@@ -148,7 +198,8 @@ async def test_scraper_scrape_final_articles_with_special_characters_in_title(mo
             with patch.object(Scraper, '_save_as_pdf', new_callable=AsyncMock) as mock_save_as_pdf:
                 scraper = Scraper(mock_logger)
                 await scraper.connect()
-                await scraper.scrape_final_articles(articles_to_scrape, formats)
+                for i, article_info in enumerate(articles_to_scrape):
+                    await scraper.scrape_single_article(article_info, formats, i, len(articles_to_scrape))
 
                 assert mock_async_playwright_result.start.call_count == 1
                 assert mock_save_article_content.call_count == len(articles_to_scrape)

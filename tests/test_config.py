@@ -15,7 +15,7 @@ async def test_check_dependencies_with_missing_credentials(mock_logger, monkeypa
     result = await config.check_dependencies(mock_logger)
     assert not result
     log_messages = [call_args[0][0] for call_args in mock_logger.call_args_list]
-    assert any("  - [FAIL] Credentials not found in .env file." in msg for msg in log_messages)
+    assert any("  - [FAIL] Credentials not found or are default in .env file." in msg for msg in log_messages)
     assert any("Result: Failed - Credentials not set." in msg for msg in log_messages)
 
 @pytest.mark.unit

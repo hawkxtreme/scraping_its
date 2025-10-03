@@ -1,6 +1,6 @@
 import pytest
 from bs4 import BeautifulSoup
-from src.parser import (
+from src.parser_v1 import (
     extract_toc_links,
     parse_article_page
 )

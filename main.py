@@ -2,13 +2,16 @@ import argparse
 import asyncio
 import os
 import sys
+import warnings
+
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 # Import modularized components
 from src import config
 from src.scraper import Scraper
 from src.logger import setup_logger
 from src import file_manager
-from src.ui import print_header, print_fatal_error
+from src.ui import print_header, print_fatal_error, print_progress
 
 async def main():
     """Main function to orchestrate the scraping process."""
@@ -42,32 +45,37 @@ async def main():
         print("Directories ready.")
         log_func("Directory setup complete.")
 
-        # --- Step 3: Login ---
-        print("\nStep 3: Logging in...")
-        log_func("Step 3: Logging in...")
+        # --- Step 3: Login & Discover ---
+        print("\nStep 3: Logging in and discovering articles...")
+        log_func("Step 3: Logging in and discovering articles...")
         await scraper_instance.connect()
         await scraper_instance.login()
-        print("Login successful.")
-        log_func("Login successful.")
-
-        # --- Step 4: Table of Contents and Indexing ---
-        print("\nStep 4: Discovering articles and building index...")
-        log_func("Step 4: Discovering articles and building index...")
         if args.force_reindex or not os.path.exists(file_manager.get_index_path()) or not os.listdir(file_manager.get_index_path()):
             initial_links = await scraper_instance.get_initial_toc(args.url, args.chapter)
             await scraper_instance.discover_articles(initial_links)
         else:
             print("Index found, skipping discovery. Use --force-reindex to override.")
             log_func("Index found, skipping discovery.")
+        await scraper_instance.close()
 
-        # --- Step 5: Final Scraping ---
+        # --- Step 4: Final Scraping ---
         if not args.no_scrape:
-            print("\nStep 5: Starting final scrape...")
-            log_func("Step 5: Starting final scrape...")
+            print("\nStep 4: Starting final scrape...")
+            log_func("Step 4: Starting final scrape...")
             articles_to_scrape = file_manager.load_index_data()
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
-            await scraper_instance.scrape_final_articles(articles_to_scrape, args.format)
+            
+            total_articles = len(articles_to_scrape)
+            for i, article_info in enumerate(articles_to_scrape):
+                scraper = Scraper(log_func)
+                try:
+                    await scraper.connect()
+                    await scraper.login()
+                    await scraper.scrape_single_article(article_info, args.format, i, total_articles)
+                finally:
+                    await scraper.close()
+
         else:
             print("\n--no-scrape flag is set. Exiting without scraping full articles.")
             log_func("Exiting due to --no-scrape flag.")
@@ -78,13 +86,13 @@ async def main():
     except Exception as e:
         print_fatal_error(str(e), log_func)
     finally:
-        # --- Step 6: Cleanup ---
-        print("\nStep 6: Cleaning up temporary files...")
-        log_func("Step 6: Cleaning up...")
+        # --- Step 5: Cleanup ---
+        print("\nStep 5: Cleaning up temporary files...")
+        log_func("Step 5: Cleaning up...")
         file_manager.cleanup_temp_files()
-        if scraper_instance: await scraper_instance.close()
         print("Cleanup complete.")
         log_func("Cleanup complete.")
+        sys.stderr = open(os.devnull, 'w')
 
 if __name__ == "__main__":
     try:

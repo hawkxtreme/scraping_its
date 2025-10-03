@@ -64,7 +64,8 @@ class Scraper:
             await page.wait_for_load_state('networkidle')
             page_content = await page.content()
             
-            initial_toc_links = parser.extract_toc_links(page_content)
+            parser_module = parser.get_parser_for_url(url)
+            initial_toc_links = parser_module.extract_toc_links(page_content)
             self.log(f"Found {len(initial_toc_links)} initial links.")
 
             if target_chapter:
@@ -88,42 +89,55 @@ class Scraper:
         i = 0
         while i < len(queue):
             article_info = queue[i]
-            url_without_fragment = article_info['url'].split('#')[0]
-            print_progress(i, len(queue), "Discovering", article_info['title'])
-
-            if url_without_fragment in processed_urls:
-                i += 1
-                continue
-
-            page = None
             try:
-                page = await self.context.new_page()
-                await page.goto(article_info['url'], timeout=90000)
-                await page.wait_for_load_state('networkidle')
-                article_frame = page.frame(name="w_metadata_doc_frame")
-                if not article_frame:
-                    raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
+                url_without_fragment = article_info['url'].split('#')[0]
+                print_progress(i, len(queue), "Discovering", article_info['title'])
 
-                iframe_html = await article_frame.content()
-                soup, nested_links, content_hash = parser.parse_article_page(iframe_html)
+                if url_without_fragment in processed_urls:
+                    i += 1
+                    continue
 
-                if content_hash not in self.scraped_content_hashes:
-                    self.scraped_content_hashes.add(content_hash)
-                    all_articles_to_index.append(article_info) # Add to the list instead of saving immediately
-                
-                processed_urls.add(url_without_fragment)
+                page = None
+                try:
+                    page = await self.context.new_page()
+                    await page.goto(article_info['url'], timeout=90000)
+                    await page.wait_for_load_state('networkidle')
+                    parser_module = parser.get_parser_for_url(article_info['url'])
 
-                for link_info in nested_links:
-                    if link_info['url'].split('#')[0] not in processed_urls:
-                        queue.append(link_info)
-                
-                await asyncio.sleep(0.2) # Be respectful to the server
+                    if parser_module.__name__ == 'src.parser_v2':
+                        # New parser logic: get content from the main page
+                        content_html = await page.content()
+                        soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
+                    else:
+                        # Old parser logic: get content from the iframe
+                        article_frame = page.frame(name="w_metadata_doc_frame")
+                        if not article_frame:
+                            raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
+                        iframe_html = await article_frame.content()
+                        soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
+
+                    if content_hash not in self.scraped_content_hashes:
+                        self.scraped_content_hashes.add(content_hash)
+                        all_articles_to_index.append(article_info) # Add to the list instead of saving immediately
+                    
+                    processed_urls.add(url_without_fragment)
+
+                    for link_info in nested_links:
+                        if link_info['url'].split('#')[0] not in processed_urls:
+                            queue.append(link_info)
+                    
+                    await asyncio.sleep(0.2) # Be respectful to the server
+                finally:
+                    await self._safely_close_page(page)
+                i += 1
             except Exception as e:
                 self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
-                # In a real-world scenario, you might add retry logic here
-            finally:
-                i += 1
-                await self._safely_close_page(page)
+                if "Target page, context or browser has been closed" in str(e):
+                    self.log("Attempting to reconnect to the browser...")
+                    await self.connect()
+                    await self.login()
+                else:
+                    i += 1
         
         # Save all discovered articles to the index once after the loop
         if all_articles_to_index:
@@ -131,43 +145,47 @@ class Scraper:
 
         print_progress(len(queue), len(queue), "Discovering", "Done!")
 
-    async def scrape_final_articles(self, articles_to_scrape, formats):
-        """Scrapes the final content for each article in the list."""
-        self.log("Step 5: Reading index and starting final scrape...")
-        total_articles = len(articles_to_scrape)
+    async def scrape_single_article(self, article_info, formats, i, total_articles):
+        """Scrapes the final content for a single article."""
+        print_progress(i + 1, total_articles, "Scraping", article_info['title'])
+        page = None
+        try:
+            page = await self.context.new_page()
+            await page.goto(article_info['url'], timeout=90000)
+            await page.wait_for_load_state('networkidle')
 
-        for i, article_info in enumerate(articles_to_scrape):
-            print_progress(i + 1, total_articles, "Scraping", article_info['title'])
-            page = None
-            try:
-                page = await self.context.new_page()
-                await page.goto(article_info['url'], timeout=90000)
-                await page.wait_for_load_state('networkidle')
+            parser_module = parser.get_parser_for_url(article_info['url'])
+
+            if parser_module.__name__ == 'src.parser_v2':
+                # New parser logic: get content from the main page
+                content_html = await page.content()
+                soup, _, _ = parser_module.parse_article_page(content_html)
+            else:
+                # Old parser logic: get content from the iframe
                 article_frame = page.frame(name="w_metadata_doc_frame")
                 if not article_frame:
-                    raise PlaywrightError("Could not find article frame for final scrape.")
-
-                number = f"{i+1:03d}"
-                sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
-                filename_base = f"{number}_{sanitized_title[:50]}" # Truncate long titles
-
-                # Save text-based formats
+                    raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
                 iframe_html = await article_frame.content()
-                soup = BeautifulSoup(iframe_html, 'html.parser')
-                file_manager.save_article_content(filename_base, formats, soup, article_info)
-                
-                # Save PDF format
-                if 'pdf' in formats:
-                    pdf_path = os.path.join(config.PDF_DIR, f"{filename_base}.pdf")
-                    await self._save_as_pdf(page, pdf_path)
-                
-                await asyncio.sleep(0.5) # Be respectful
-            except Exception as e:
-                self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
-                continue # Skip to the next article
-            finally:
-                await self._safely_close_page(page)
-        print_progress(total_articles, total_articles, "Scraping", "Done!")
+                soup, _, _ = parser_module.parse_article_page(iframe_html)
+
+
+            number = f"{i+1:03d}"
+            sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
+            filename_base = f"{number}_{sanitized_title[:50]}" # Truncate long titles
+
+            # Save text-based formats
+            file_manager.save_article_content(filename_base, formats, soup, article_info)
+            
+            # Save PDF format
+            if 'pdf' in formats:
+                pdf_path = os.path.join(config.PDF_DIR, f"{filename_base}.pdf")
+                await self._save_as_pdf(page, pdf_path)
+            
+            await asyncio.sleep(0.5) # Be respectful
+        except Exception as e:
+            self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
+        finally:
+            await self._safely_close_page(page)
 
     async def _safely_close_page(self, page: Page):
         """Helper function to safely close a page."""

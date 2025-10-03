@@ -1,0 +1,47 @@
+from bs4 import BeautifulSoup
+from . import config
+
+def extract_toc_links(html_content):
+    """
+    Parses the initial Table of Contents HTML to extract article links for the new format.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    nav_tree_div = soup.find('div', id='w_metadata_navtree')
+    if not nav_tree_div:
+        raise ValueError("Could not find the nav tree div with id 'w_metadata_navtree'.")
+
+    toc_links = []
+    for i, link in enumerate(nav_tree_div.select('ul li a')):
+        href = link.get('href')
+        text = link.get_text(strip=True)
+        if href and text:
+            full_url = f"{config.BASE_URL}{href}"
+            toc_links.append({"title": text, "url": full_url, "original_order": i})
+    return toc_links
+
+def parse_article_page(html_content):
+    """
+    Parses the HTML of an article's content to find the main text and nested links.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    content_div = soup.find('div', id='w_content')
+    if not content_div:
+        raise ValueError("Could not find content div with id 'w_content'.")
+
+    # Calculate content hash
+    article_text = content_div.get_text(separator='\n', strip=True)
+    content_hash = hash(article_text)
+
+    # Discover nested links
+    nested_links = []
+    # We assume that the links are in the main content area
+    for link in content_div.find_all('a'):
+        href = link.get('href')
+        text = link.get_text(strip=True)
+        if href and text:
+            # We need to filter out links that are not articles
+            if href.startswith('/db/'):
+                full_url = f"{config.BASE_URL}{href}"
+                nested_links.append({"title": text, "url": full_url})
+    
+    return soup, nested_links, content_hash
