@@ -79,83 +79,7 @@ class Scraper:
         finally:
             await self._safely_close_page(page)
 
-    async def discover_articles(self, initial_links):
-        """Discovers all unique articles by crawling from the initial TOC."""
-        self.log("Step 4: Discovering and Indexing...")
-        
-        queue = asyncio.Queue()
-        for link in initial_links:
-            await queue.put(link)
 
-        processed_urls = set()
-        all_articles_to_index = []
-        
-        pbar = tqdm(total=len(initial_links), desc="Discovering Articles", unit="article")
-        semaphore = asyncio.Semaphore(8) # Let's use 8 parallel workers
-
-        async def worker():
-            while True:
-                try:
-                    article_info = await queue.get()
-                    
-                    url_without_fragment = article_info['url'].split('#')[0]
-                    if url_without_fragment in processed_urls:
-                        queue.task_done()
-                        pbar.update(1)
-                        continue
-
-                    async with semaphore:
-                        page = None
-                        try:
-                            page = await self.context.new_page()
-                            await page.goto(article_info['url'], timeout=90000)
-                            await page.wait_for_load_state('networkidle')
-                            parser_module = parser.get_parser_for_url(article_info['url'])
-
-                            if parser_module.__name__ == 'src.parser_v2':
-                                content_html = await page.content()
-                                soup, nested_links, content_hash = parser_module.parse_article_page(content_html)
-                            else:
-                                article_frame = page.frame(name="w_metadata_doc_frame")
-                                if not article_frame:
-                                    raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
-                                iframe_html = await article_frame.content()
-                                soup, nested_links, content_hash = parser_module.parse_article_page(iframe_html)
-
-                            if content_hash not in self.scraped_content_hashes:
-                                self.scraped_content_hashes.add(content_hash)
-                                all_articles_to_index.append(article_info)
-                            
-                            processed_urls.add(url_without_fragment)
-
-                            for link_info in nested_links:
-                                if link_info['url'].split('#')[0] not in processed_urls:
-                                    pbar.total += 1
-                                    await queue.put(link_info)
-                            
-                            pbar.update(1)
-
-                        except Exception as e:
-                            self.log(f"  - ERROR during discovery for {article_info['title']}: {e}")
-                        finally:
-                            await self._safely_close_page(page)
-                            queue.task_done()
-                except asyncio.CancelledError:
-                    break
-
-        tasks = [asyncio.create_task(worker()) for _ in range(8)]
-
-        await queue.join()
-
-        for task in tasks:
-            task.cancel()
-
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-        pbar.close()
-
-        if all_articles_to_index:
-            file_manager.save_index_data(all_articles_to_index)
 
     async def scrape_single_article(self, article_info, formats, i, pbar):
         """Scrapes the final content for a single article."""
@@ -180,6 +104,7 @@ class Scraper:
             number = f"{i+1:03d}"
             sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
             filename_base = f"{number}_{sanitized_title[:50]}"
+            article_info["filename_base"] = filename_base
 
             file_manager.save_article_content(filename_base, formats, soup, article_info)
             

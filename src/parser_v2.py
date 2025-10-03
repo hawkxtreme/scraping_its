@@ -3,21 +3,34 @@ from . import config
 
 def extract_toc_links(html_content):
     """
-    Parses the initial Table of Contents HTML to extract article links for the new format.
+    Parses the initial Table of Contents HTML to extract a hierarchical structure of article links for the new format.
     """
     soup = BeautifulSoup(html_content, 'html.parser')
     nav_tree_div = soup.find('div', id='w_metadata_navtree')
     if not nav_tree_div:
         raise ValueError("Could not find the nav tree div with id 'w_metadata_navtree'.")
 
-    toc_links = []
-    for i, link in enumerate(nav_tree_div.select('ul li a')):
-        href = link.get('href')
-        text = link.get_text(strip=True)
-        if href and text:
-            full_url = f"{config.BASE_URL}{href}"
-            toc_links.append({"title": text, "url": full_url, "original_order": i})
-    return toc_links
+    def parse_ul(ul_element):
+        children = []
+        for li in ul_element.find_all('li', recursive=False):
+            link = li.find('a', recursive=False)
+            if link:
+                href = link.get('href')
+                text = link.get_text(strip=True)
+                if href and text:
+                    full_url = f"{config.BASE_URL}{href}"
+                    node = {"title": text, "url": full_url, "children": []}
+                    nested_ul = li.find('ul')
+                    if nested_ul:
+                        node["children"] = parse_ul(nested_ul)
+                    children.append(node)
+        return children
+
+    top_ul = nav_tree_div.find('ul')
+    if not top_ul:
+        return []
+        
+    return parse_ul(top_ul)
 
 def parse_article_page(html_content):
     """

@@ -4,7 +4,6 @@ import os
 import sys
 import time
 import warnings
-import concurrent.futures
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -16,11 +15,8 @@ from src.logger import setup_logger
 from src import file_manager
 from src.ui import print_header, print_fatal_error
 
-import nest_asyncio
-
 async def main():
     """Main function to orchestrate the scraping process."""
-    nest_asyncio.apply()
     # Set stdout encoding to UTF-8
     if sys.stdout.encoding != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
@@ -57,17 +53,17 @@ async def main():
         print("Directories ready.")
         log_func("Directory setup complete.")
 
-        # --- Step 3: Login & Discover ---
-        print("\nStep 3: Logging in and discovering articles...")
-        log_func("Step 3: Logging in and discovering articles...")
+        # --- Step 3: Login & Create Index ---
+        print("\nStep 3: Logging in and creating article index...")
+        log_func("Step 3: Logging in and creating article index...")
         await scraper_instance.connect()
         await scraper_instance.login()
-        if args.force_reindex or not os.path.exists(file_manager.get_index_path()) or not os.listdir(file_manager.get_index_path()):
-            initial_links = await scraper_instance.get_initial_toc(args.url, args.chapter)
-            await scraper_instance.discover_articles(initial_links)
+        if args.force_reindex or not os.path.exists(os.path.join(file_manager.get_index_path(), "_toc_tree.json")):
+            toc_tree = await scraper_instance.get_initial_toc(args.url, args.chapter)
+            file_manager.save_hierarchical_index(toc_tree)
         else:
-            print("Index found, skipping discovery. Use --force-reindex to override.")
-            log_func("Index found, skipping discovery.")
+            print("Index found, skipping index creation. Use --force-reindex to override.")
+            log_func("Index found, skipping index creation.")
         await scraper_instance.close()
 
         # --- Step 4: Final Scraping ---
@@ -107,6 +103,13 @@ async def main():
                     for i, article_info in enumerate(articles_to_scrape):
                         await scrape_single_article_wrapper(article_info, i, pbar)
 
+            # --- Step 5: Create TOC and Meta files ---
+            print("\nStep 5: Creating Table of Contents and metadata file...")
+            log_func("Step 5: Creating TOC and meta file...")
+            file_manager.create_toc_and_meta(articles_to_scrape, args.format)
+            print("TOC and metadata files created.")
+            log_func("TOC and metadata files created.")
+
         else:
             print("\n--no-scrape flag is set. Exiting without scraping full articles.")
             log_func("Exiting due to --no-scrape flag.")
@@ -117,9 +120,9 @@ async def main():
     except Exception as e:
         print_fatal_error(str(e), log_func)
     finally:
-        # --- Step 5: Cleanup ---
-        print("\nStep 5: Cleaning up temporary files...")
-        log_func("Step 5: Cleaning up...")
+        # --- Step 6: Cleanup ---
+        print("\nStep 6: Cleaning up temporary files...")
+        log_func("Step 6: Cleaning up...")
         file_manager.cleanup_temp_files()
         print("Cleanup complete.")
         log_func("Cleanup complete.")

@@ -9,10 +9,8 @@ from . import config
 
 def setup_output_directories():
     """Cleans and creates the necessary output directories."""
-    if os.path.exists(config.BASE_ARTICLES_DIR):
-        shutil.rmtree(config.BASE_ARTICLES_DIR)
-    if os.path.exists(config.TMP_INDEX_DIR):
-        shutil.rmtree(config.TMP_INDEX_DIR)
+    if os.path.exists(config.OUTPUT_DIR):
+        shutil.rmtree(config.OUTPUT_DIR)
     
     os.makedirs(config.JSON_DIR, exist_ok=True)
     os.makedirs(config.PDF_DIR, exist_ok=True)
@@ -93,32 +91,81 @@ def save_article_content(filename_base, formats, soup, article_info):
 
     # PDF сохраняется отдельно через scraper._save_as_pdf
 
-def save_index_data(articles_list):
-    """Saves temporary index data for articles."""
-    os.makedirs(config.TMP_INDEX_DIR, exist_ok=True)
-    index_file = os.path.join(config.TMP_INDEX_DIR, "index.json")
-    
+def save_hierarchical_index(toc_tree):
+    """Saves the hierarchical TOC tree to a JSON file."""
+    index_file = os.path.join(config.TMP_INDEX_DIR, "_toc_tree.json")
     with open(index_file, 'w', encoding='utf-8') as f:
-        json.dump(articles_list, f, ensure_ascii=False, indent=2)
+        json.dump(toc_tree, f, ensure_ascii=False, indent=2)
 
-def load_and_sort_index():
-    """Loads the index file and returns the list of articles."""
-    index_file = os.path.join(config.TMP_INDEX_DIR, "index.json")
+def create_toc_and_meta(articles, formats):
+    """Creates the _toc.md and _meta.json files."""
+    # We need the original toc_tree to generate the markdown toc
+    index_file = os.path.join(config.TMP_INDEX_DIR, "_toc_tree.json")
+    if not os.path.exists(index_file):
+        return
+    with open(index_file, "r", encoding="utf-8") as f:
+        toc_tree = json.load(f)
+
+    create_markdown_toc(toc_tree, articles, formats)
+    create_meta_json(articles, formats)
+
+def create_markdown_toc(toc_tree, articles, formats):
+    """Generates the _toc.md file."""
+    url_to_filename = {article["url"]: article["filename_base"] for article in articles if "filename_base" in article}
+
+    with open(os.path.join(config.OUTPUT_DIR, "_toc.md"), "w", encoding="utf-8") as f:
+        f.write("# Оглавление\n\n")
+        
+        def write_nodes(nodes, indent_level=0):
+            for node in nodes:
+                filename_base = url_to_filename.get(node["url"])
+                
+                if filename_base:
+                    f.write("    " * indent_level + f"*   **{node['title']}**\n")
+                    for format in formats:
+                        f.write("    " * (indent_level + 1) + f"*   [{format.upper()}](./{format}/{filename_base}.{format})\n")
+                else:
+                    f.write("    " * indent_level + f"*   **{node['title']}**\n")
+
+                if node["children"]:
+                    write_nodes(node["children"], indent_level + 1)
+
+        write_nodes(toc_tree)
+
+def create_meta_json(articles, formats):
+    """Generates the _meta.json file."""
+    with open(os.path.join(config.OUTPUT_DIR, "_meta.json"), "w", encoding="utf-8") as f:
+        json.dump(articles, f, ensure_ascii=False, indent=4)
+
+def load_index_data():
+    """Loads the hierarchical index, flattens it, and returns a list of articles to scrape."""
+    index_file = os.path.join(config.TMP_INDEX_DIR, "_toc_tree.json")
     if not os.path.exists(index_file):
         return []
         
     with open(index_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        toc_tree = json.load(f)
 
-def cleanup_temp_files():
-    """Removes temporary directories."""
-    if os.path.exists(config.TMP_INDEX_DIR):
-        shutil.rmtree(config.TMP_INDEX_DIR)
+    flat_list = []
+    def traverse(nodes, breadcrumbs):
+        for node in nodes:
+            article_data = {
+                "title": node["title"],
+                "url": node["url"],
+                "breadcrumb": breadcrumbs + [node["title"]],
+            }
+            flat_list.append(article_data)
+            if node["children"]:
+                traverse(node["children"], breadcrumbs + [node["title"]])
+
+    traverse(toc_tree, [])
+    return flat_list
 
 def get_index_path():
     """Returns the path to the temporary index directory."""
     return config.TMP_INDEX_DIR
 
-def load_index_data():
-    """Loads and sorts the index data."""
-    return load_and_sort_index()
+def cleanup_temp_files():
+    """Removes temporary directories."""
+    if os.path.exists(config.TMP_INDEX_DIR):
+        shutil.rmtree(config.TMP_INDEX_DIR)
