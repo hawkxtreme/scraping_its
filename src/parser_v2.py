@@ -41,9 +41,14 @@ def parse_article_page(html_content):
     if not content_div:
         raise ValueError("Could not find content div with id 'w_content'.")
 
-    # Calculate content hash
+    # Calculate content hash - include URL for uniqueness
     article_text = content_div.get_text(separator='\n', strip=True)
-    content_hash = hash(article_text)
+    # Use a more robust hash that includes URL to avoid false duplicates
+    # Only create hash if content is not empty
+    if article_text.strip():
+        content_hash = hash(f"{article_text}|{len(article_text)}")
+    else:
+        content_hash = 0  # Special value for empty content
 
     # Discover nested links
     nested_links = []

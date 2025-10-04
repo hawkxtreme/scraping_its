@@ -23,7 +23,6 @@ async def main():
         
     start_time = time.monotonic()
     print_header()
-    log_func = setup_logger(config.OUTPUT_DIR)
 
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description="Scrape articles from its.1c.ru.")
@@ -34,6 +33,20 @@ async def main():
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
     parser.add_argument("-p", "--parallel", type=int, default=1, help="Number of parallel download streams.")
     args = parser.parse_args()
+
+    # --- Dynamic Directory Setup ---
+    try:
+        from urllib.parse import urlparse
+        parsed_url = urlparse(args.url)
+        # Extract the last part of the path, ignoring any trailing slashes
+        dir_name = os.path.basename(parsed_url.path.rstrip('/'))
+        if dir_name:
+            config.set_output_dir(dir_name)
+    except Exception as e:
+        print(f"Could not parse URL to set output directory: {e}")
+        # Fallback to default directory if parsing fails
+
+    log_func = setup_logger(config.get_output_dir())
 
     scraper_instance = Scraper(log_func)
 
@@ -49,7 +62,7 @@ async def main():
         # --- Step 2: Initial Setup ---
         print("\nStep 2: Setting up output directories...")
         log_func("Step 2: Setting up output directories...")
-        file_manager.setup_output_directories()
+        file_manager.setup_output_directories(args.format)
         print("Directories ready.")
         log_func("Directory setup complete.")
 
@@ -75,33 +88,50 @@ async def main():
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
 
-            async def scrape_single_article_wrapper(article_info, index, pbar):
-                scraper = Scraper(log_func)
-                try:
-                    await scraper.connect()
-                    await scraper.login()
-                    await scraper.scrape_single_article(article_info, args.format, index, pbar)
-                except Exception as e:
-                    log_func(f"Error scraping {article_info.get('url')}: {e}")
-                finally:
-                    await scraper.close()
+            shared_hashes = set()
 
             if args.parallel > 1:
-                pbar = tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article")
-                semaphore = asyncio.Semaphore(args.parallel)
+                # --- Worker Pool Setup ---
+                queue = asyncio.Queue()
+                for i, article_info in enumerate(articles_to_scrape):
+                    await queue.put((article_info, i))
 
-                async def run_with_semaphore(article_info, index):
-                    async with semaphore:
-                        await scrape_single_article_wrapper(article_info, index, pbar)
+                pbar = tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article")
+
+                async def worker(name, queue, pbar):
+                    scraper = Scraper(log_func, shared_hashes=shared_hashes)
+                    await scraper.connect()
+                    await scraper.login()
+                    while not queue.empty():
+                        try:
+                            article_info, index = await queue.get()
+                            await scraper.scrape_single_article(article_info, args.format, index, pbar)
+                            queue.task_done()
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as e:
+                            log_func(f"Worker {name} error: {e}")
+                    await scraper.close()
+
+                workers = [asyncio.create_task(worker(f'worker-{i}', queue, pbar)) for i in range(args.parallel)]
+
+                await queue.join()
+
+                for w in workers:
+                    w.cancel()
                 
-                tasks = [run_with_semaphore(article_info, i) for i, article_info in enumerate(articles_to_scrape)]
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*workers, return_exceptions=True)
+
                 pbar.close()
             else:
                 # Run sequentially if parallel is 1
                 with tqdm(total=len(articles_to_scrape), desc="Scraping Articles", unit="article") as pbar:
+                    scraper = Scraper(log_func, shared_hashes=shared_hashes)
+                    await scraper.connect()
+                    await scraper.login()
                     for i, article_info in enumerate(articles_to_scrape):
-                        await scrape_single_article_wrapper(article_info, i, pbar)
+                        await scraper.scrape_single_article(article_info, args.format, i, pbar)
+                    await scraper.close()
 
             # --- Step 5: Create TOC and Meta files ---
             print("\nStep 5: Creating Table of Contents and metadata file...")

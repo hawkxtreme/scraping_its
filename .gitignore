@@ -128,6 +128,7 @@ dmypy.json
 # IDE
 .vscode/
 .idea/
+.gemini/
 
 # OS generated files
 .DS_Store

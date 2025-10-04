@@ -25,15 +25,40 @@ LOGIN_URL = "https://login.1c.ru/login"
 # --- Directory Setup ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "out")
 
-# Article directories
-BASE_ARTICLES_DIR = os.path.join(OUTPUT_DIR, "articles")
-TMP_INDEX_DIR = os.path.join(OUTPUT_DIR, "tmp_index")
-JSON_DIR = os.path.join(BASE_ARTICLES_DIR, "json")
-PDF_DIR = os.path.join(BASE_ARTICLES_DIR, "pdf")
-TXT_DIR = os.path.join(BASE_ARTICLES_DIR, "txt")
-MARKDOWN_DIR = os.path.join(BASE_ARTICLES_DIR, "markdown")
+# Global variable for the dynamic output directory
+dynamic_output_dir = None
+
+def set_output_dir(name):
+    """Sets the dynamic output directory."""
+    global dynamic_output_dir
+    dynamic_output_dir = os.path.join(PROJECT_ROOT, "out", name)
+
+def get_output_dir():
+    """Gets the current output directory."""
+    if dynamic_output_dir:
+        return dynamic_output_dir
+    return os.path.join(PROJECT_ROOT, "out")
+
+def get_tmp_index_dir():
+    """Gets the temporary index directory."""
+    return os.path.join(get_output_dir(), "tmp_index")
+
+def get_json_dir():
+    """Gets the JSON output directory."""
+    return os.path.join(get_output_dir(), "json")
+
+def get_pdf_dir():
+    """Gets the PDF output directory."""
+    return os.path.join(get_output_dir(), "pdf")
+
+def get_txt_dir():
+    """Gets the TXT output directory."""
+    return os.path.join(get_output_dir(), "txt")
+
+def get_markdown_dir():
+    """Gets the Markdown output directory."""
+    return os.path.join(get_output_dir(), "markdown")
 
 
 async def check_dependencies(log_func):

@@ -12,12 +12,15 @@ from . import file_manager
 class Scraper:
     """Manages all web scraping operations using Playwright."""
 
-    def __init__(self, log_func):
+    def __init__(self, log_func, shared_hashes=None):
         self.log = log_func
         self.playwright = None
         self.browser: Browser = None
         self.context: BrowserContext = None
-        self.scraped_content_hashes = set()
+        if shared_hashes is not None:
+            self.scraped_content_hashes = shared_hashes
+        else:
+            self.scraped_content_hashes = set()
 
     async def connect(self):
         """Connects to the browser."""
@@ -91,26 +94,48 @@ class Scraper:
 
             parser_module = parser.get_parser_for_url(article_info['url'])
 
-            if parser_module.__name__ == 'src.parser_v2':
+            if parser_module.__name__ == 'src.parser_v2' or 'cabinetdoc' in article_info['url']:
                 content_html = await page.content()
-                soup, _, _ = parser_module.parse_article_page(content_html)
+                soup, _, content_hash = parser_module.parse_article_page(content_html)
             else:
                 article_frame = page.frame(name="w_metadata_doc_frame")
                 if not article_frame:
                     raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
                 iframe_html = await article_frame.content()
-                soup, _, _ = parser_module.parse_article_page(iframe_html)
+                soup, _, content_hash = parser_module.parse_article_page(iframe_html)
 
-            number = f"{i+1:03d}"
-            sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
-            filename_base = f"{number}_{sanitized_title[:50]}"
+            # Check for duplicate content - but be less aggressive
+            if content_hash in self.scraped_content_hashes:
+                self.log(f"  - Skipping duplicate content: {article_info['title']} (hash: {content_hash})")
+                pbar.update(1)
+                return
+            
+            # Add to hashes only if content is not empty
+            if content_hash != 0 and content_hash is not None:
+                self.scraped_content_hashes.add(content_hash)
+            else:
+                self.log(f"  - Warning: Empty or invalid content hash for {article_info['title']}, proceeding anyway")
+
+            # Use the filename_base provided by the index loader
+            filename_base = article_info.get("filename_base")
+            if not filename_base:
+                # Fallback for safety, though it shouldn't be needed
+                self.log(f"Warning: filename_base not found for {article_info['title']}. Generating a fallback.")
+                number = f"{i+1:03d}"
+                sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
+                filename_base = f"{number}_{sanitized_title[:50]}"
+            # IMPORTANT: Ensure the filename_base is stored back in the article_info dict 
+            # so it can be used by the TOC and metadata generation.
             article_info["filename_base"] = filename_base
 
+            # Save article content in specified formats
             file_manager.save_article_content(filename_base, formats, soup, article_info)
+            self.log(f"  - Saved article: {article_info['title']} (filename: {filename_base})")
             
             if 'pdf' in formats:
-                pdf_path = os.path.join(config.PDF_DIR, f"{filename_base}.pdf")
+                pdf_path = os.path.join(config.get_pdf_dir(), f"{filename_base}.pdf")
                 await self._save_as_pdf(page, pdf_path)
+                self.log(f"  - Saved PDF: {pdf_path}")
             
             await asyncio.sleep(0.5)
             pbar.update(1)
