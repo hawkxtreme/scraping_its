@@ -6,6 +6,7 @@
 
 * Python 3.8 или выше
 * Docker 20.10 или выше (для browserless)
+* Playwright (устанавливается через pip) + chromium browser (устанавливается отдельно через `playwright install`)
 * Операционные системы:
   * Windows 10/11
   * Linux (Ubuntu 20.04+)
@@ -48,7 +49,7 @@
    pip install -r requirements.txt
    ```
 
-6. **Создайте файл .env на основе примера:**
+4. **Создайте файл .env на основе примера:**
    ```powershell
    copy .env-example .env
    ```
@@ -61,6 +62,12 @@
        LOGIN_1C_USER="ваш_логин"
        LOGIN_1C_PASSWORD="ваш_пароль"
        ```
+       > **Важно:** Использование специальных символов в пароле может вызвать проблемы. Рекомендуется использовать пароли без специальных символов или экранировать их в файле .env, если это необходимо.
+
+6. **Установите браузер для Playwright (требуется один раз):**
+   ```powershell
+   playwright install chromium
+   ```
 
 
 ## Аргументы командной строки
@@ -77,18 +84,27 @@ python main.py -h
 
 Все доступные команды
 
-```bash
-usage: main.py [-h] [-c CHAPTER] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]] 
-              [--no-scrape] [--force-reindex] [-p PARALLEL] url
+```
+usage: main.py [-h] [-c CHAPTER]
+               [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]]
+               [--no-scrape] [--force-reindex] [-p PARALLEL]
+               url
 
-Аргументы:
-  url                  URL раздела для скрапинга
-  -h, --help           Вывести справку о командах
-  -c, --chapter        Название главы для выборочного скрапинга
-  -f, --format         Форматы выходных файлов json, pdf, txt, markdown (можно указать несколько)
-  --no-scrape          Только создать индекс без скрапинга статей
-  --force-reindex      Принудительно обновить индекс статей
-  -p, --parallel       Количество параллельных потоков для скачивания (по умолчанию 1)
+Скраппинг статей с its.1c.ru.
+
+positional arguments:
+  url                   URL для скрапинга
+
+options:
+  -h, --help            показать это сообщение и выйти
+  -c, --chapter CHAPTER
+                        Название главы для выборочного скрапинга
+  -f, --format {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]
+                        Форматы выходных файлов
+  --no-scrape           Создать индекс без скрапинга статей
+  --force-reindex       Принудительно обновить индекс статей
+  -p, --parallel PARALLEL
+                        Количество параллельных потоков для скачивания
 ```
 
 ## Выходные файлы
@@ -141,6 +157,26 @@ python main.py https://its.1c.ru/db/erp25ltsdoc --format pdf -p 8
 ```bash
 python main.py https://its.1c.ru/db/erp25ltsdoc --no-scrape
 ```
+
+* Принудительное обновление индекса:
+```bash
+python main.py https://its.1c.ru/db/erp25ltsdoc --force-reindex
+```
+
+## Структура проекта
+
+Проект организован в модульной архитектуре:
+
+* `main.py` - точка входа в приложение
+* `src/` - основной код приложения:
+  * `scraper.py` - логика скрапинга с использованием Playwright
+  * `parser.py`, `parser_v1.py`, `parser_v2.py` - модули парсинга контента (выбор парсера зависит от URL)
+  * `config.py` - конфигурация и управление зависимостями
+  * `file_manager.py` - работа с файлами и создание оглавления
+  * `logger.py` - логирование
+  * `ui.py` - пользовательский интерфейс (вывод в консоль)
+* `out/` - папка с результатами скрапинга
+* `tests/` - тесты
 
 ## Roadmap
 
