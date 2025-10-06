@@ -5,12 +5,9 @@ import sys
 import os
 import json
 
-# Добавляем путь к src в sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-# Импортируем модули напрямую
-import config
-import file_manager
+# Импортируем модули из src
+from src import config
+from src import file_manager
 
 def test_get_articles_to_scrape():
     """Тест функции get_articles_to_scrape"""
@@ -60,7 +57,6 @@ def test_load_existing_meta_data():
         json.dump(test_data, f, ensure_ascii=False, indent=2)
     
     # Устанавливаем выходную директорию для теста
-    import config
     config.set_output_dir("test_section")
     
     # Тестируем загрузку метаданных

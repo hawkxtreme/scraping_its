@@ -81,14 +81,15 @@ async def test_scraper_close_with_none_components(mock_logger):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_playwright):
-    """Тест обнаружения статей с дублирующимися URL."""
+async def test_scraper_scrape_articles_with_duplicate_urls(mock_logger, mock_playwright):
+    """Тест скрапинга статей с дублирующимися URL."""
     # Используем две статьи с одинаковыми URL, но разными фрагментами
-    initial_links = [
+    articles_to_scrape = [
         {"url": "https://its.1c.ru/db/article1#section1", "title": "Article 1 section 1"},
         {"url": "https://its.1c.ru/db/article1#section2", "title": "Article 1 section 2"},
         {"url": "https://its.1c.ru/db/article2", "title": "Article 2"}
     ]
+    formats = ['json']
     
     # Extract components from fixture
     mock_frame = MagicMock()
@@ -111,8 +112,14 @@ async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_p
     mock_page2.wait_for_load_state = AsyncMock()
     mock_page2.close = AsyncMock()
     
+    mock_page3 = MagicMock()
+    mock_page3.frame = AsyncMock(return_value=mock_frame)
+    mock_page3.goto = AsyncMock()
+    mock_page3.wait_for_load_state = AsyncMock()
+    mock_page3.close = AsyncMock()
+    
     # Мокаем context.new_page, чтобы он возвращал разные страницы
-    new_page_calls = [mock_page1, mock_page2]  # Только 2 уникальные страницы
+    new_page_calls = [mock_page1, mock_page2, mock_page3]
     call_count = 0
     
     async def mock_new_page():
@@ -132,19 +139,18 @@ async def test_scraper_discover_articles_with_duplicate_urls(mock_logger, mock_p
     mock_async_playwright_result.start = AsyncMock(return_value=mock_playwright)
     
     with patch("src.scraper.async_playwright", return_value=mock_async_playwright_result):
-        with patch.object(file_manager, 'save_index_data', new_callable=AsyncMock) as mock_save_index_data:
-            with patch('src.parser_v1.parse_article_page', return_value=(MagicMock(), [], 123)) as mock_parse_article_page:
-                scraper = Scraper(mock_logger)
-                await scraper.connect()
-                await scraper.discover_articles(initial_links)
-                
-                # Должен обработать только уникальные URL (без фрагментов)
-                # Всего 2 уникальных URL: article1 и article2
-                # article1 встречается 2 раза, но обрабатывается 1 раз
-                assert mock_async_playwright_result.start.call_count == 1
-                # Проверяем, что goto был вызван для уникальных URL
-                assert mock_playwright.context.new_page.call_count == 2  # 2 уникальных URL
-                mock_save_index_data.assert_called_once()
+        with patch.object(file_manager, 'save_article_content', new_callable=MagicMock) as mock_save_article_content:
+            scraper = Scraper(mock_logger)
+            await scraper.connect()
+            
+            # Скрапим статьи
+            for i, article_info in enumerate(articles_to_scrape):
+                await scraper.scrape_single_article(article_info, formats, i, len(articles_to_scrape))
+            
+            # Проверяем, что обработаны все 3 статьи
+            assert mock_async_playwright_result.start.call_count == 1
+            assert mock_playwright.context.new_page.call_count == 3
+            assert mock_save_article_content.call_count == 3
 
 @pytest.mark.unit
 @pytest.mark.asyncio

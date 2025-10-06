@@ -10,24 +10,24 @@ from src import config
 @pytest.mark.unit
 def test_setup_output_directories(temp_dir, monkeypatch):
     """Тест создания структуры директорий."""
-    # Подменяем пути на временные
-    monkeypatch.setattr(config, "OUTPUT_DIR", str(temp_dir))
-    monkeypatch.setattr(config, "BASE_ARTICLES_DIR", str(temp_dir / "articles"))
-    monkeypatch.setattr(config, "JSON_DIR", str(temp_dir / "articles/json"))
-    monkeypatch.setattr(config, "PDF_DIR", str(temp_dir / "articles/pdf"))
-    monkeypatch.setattr(config, "TXT_DIR", str(temp_dir / "articles/txt"))
-    monkeypatch.setattr(config, "MARKDOWN_DIR", str(temp_dir / "articles/markdown"))
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", str(temp_dir / "tmp_index"))
+    # Подменяем функции для получения путей
+    monkeypatch.setattr(config, "get_output_dir", lambda: str(temp_dir))
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(temp_dir / "json"))
+    monkeypatch.setattr(config, "get_pdf_dir", lambda: str(temp_dir / "pdf"))
+    monkeypatch.setattr(config, "get_txt_dir", lambda: str(temp_dir / "txt"))
+    monkeypatch.setattr(config, "get_markdown_dir", lambda: str(temp_dir / "markdown"))
+    monkeypatch.setattr(config, "get_docx_dir", lambda: str(temp_dir / "docx"))
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: str(temp_dir / "tmp_index"))
 
     # Вызываем функцию создания директорий
-    file_manager.setup_output_directories()
+    file_manager.setup_output_directories(['json', 'pdf', 'txt', 'markdown', 'docx'])
 
     # Проверяем, что все директории созданы
-    assert os.path.exists(temp_dir / "articles")
-    assert os.path.exists(temp_dir / "articles/json")
-    assert os.path.exists(temp_dir / "articles/pdf")
-    assert os.path.exists(temp_dir / "articles/txt")
-    assert os.path.exists(temp_dir / "articles/markdown")
+    assert os.path.exists(temp_dir / "json")
+    assert os.path.exists(temp_dir / "pdf")
+    assert os.path.exists(temp_dir / "txt")
+    assert os.path.exists(temp_dir / "markdown")
+    assert os.path.exists(temp_dir / "docx")
     assert os.path.exists(temp_dir / "tmp_index")
 
 @pytest.mark.unit
@@ -38,7 +38,7 @@ def test_cleanup_temp_files(temp_dir, monkeypatch):
     tmp_dir.mkdir()
     (tmp_dir / "test.tmp").write_text("test")
     
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", str(tmp_dir))
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: str(tmp_dir))
     
     # Вызываем функцию очистки
     file_manager.cleanup_temp_files()
@@ -47,22 +47,31 @@ def test_cleanup_temp_files(temp_dir, monkeypatch):
     assert not os.path.exists(tmp_dir)
 
 @pytest.mark.unit
-def test_save_index_data(temp_dir, monkeypatch):
-    """Тест сохранения данных индекса."""
+def test_save_hierarchical_index(temp_dir, monkeypatch):
+    """Тест сохранения иерархического индекса."""
     # Подготавливаем тестовые данные
     test_data = [
-        {"url": "http://test.com/1", "title": "Test 1"},
-        {"url": "http://test.com/2", "title": "Test 2"}
+        {
+            "title": "Test 1",
+            "url": "http://test.com/1",
+            "children": []
+        },
+        {
+            "title": "Test 2",
+            "url": "http://test.com/2",
+            "children": []
+        }
     ]
     
     index_dir = temp_dir / "tmp_index"
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", str(index_dir))
+    index_dir.mkdir(exist_ok=True)  # Создаем директорию
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: str(index_dir))
     
     # Сохраняем данные
-    file_manager.save_index_data(test_data)
+    file_manager.save_hierarchical_index(test_data)
     
     # Проверяем, что данные сохранились корректно
-    index_file = index_dir / "index.json"
+    index_file = index_dir / "_toc_tree.json"
     assert index_file.exists()
     saved_data = json.loads(index_file.read_text())
     assert saved_data == test_data
@@ -72,28 +81,38 @@ def test_load_index_data(temp_dir, monkeypatch):
     """Тест загрузки данных индекса."""
     # Подготавливаем тестовые данные
     test_data = [
-        {"url": "http://test.com/1", "title": "Test 1"},
-        {"url": "http://test.com/2", "title": "Test 2"}
+        {
+            "title": "Test 1",
+            "url": "http://test.com/1",
+            "children": []
+        },
+        {
+            "title": "Test 2",
+            "url": "http://test.com/2",
+            "children": []
+        }
     ]
     
     index_dir = temp_dir / "tmp_index"
     index_dir.mkdir()
-    index_file = index_dir / "index.json"
+    index_file = index_dir / "_toc_tree.json"
     index_file.write_text(json.dumps(test_data))
     
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", str(index_dir))
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: str(index_dir))
     
     # Загружаем данные
     loaded_data = file_manager.load_index_data()
     
     # Проверяем, что данные загрузились корректно
-    assert loaded_data == test_data
+    assert len(loaded_data) == 2  # Должно быть 2 статьи после выравнивания
+    assert loaded_data[0]["url"] == "http://test.com/1"
+    assert loaded_data[1]["url"] == "http://test.com/2"
 
 @pytest.mark.unit
 def test_load_index_data_empty(temp_dir, monkeypatch):
     """Тест загрузки данных индекса, когда файл индекса отсутствует."""
     index_dir = temp_dir / "tmp_index"
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", str(index_dir))
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: str(index_dir))
     loaded_data = file_manager.load_index_data()
     assert loaded_data == []
 
@@ -101,7 +120,7 @@ def test_load_index_data_empty(temp_dir, monkeypatch):
 def test_get_index_path(temp_dir, monkeypatch):
     """Тест получения пути к временной директории индекса."""
     expected_path = str(temp_dir / "tmp_index")
-    monkeypatch.setattr(config, "TMP_INDEX_DIR", expected_path)
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: expected_path)
     assert file_manager.get_index_path() == expected_path
 
 @pytest.mark.unit
@@ -118,9 +137,9 @@ def test_save_article_content_all_formats(temp_dir, monkeypatch):
     soup = BeautifulSoup(html_content, 'html.parser')
 
     # Подменяем пути на временные
-    monkeypatch.setattr(config, "JSON_DIR", str(temp_dir / "json"))
-    monkeypatch.setattr(config, "TXT_DIR", str(temp_dir / "txt"))
-    monkeypatch.setattr(config, "MARKDOWN_DIR", str(temp_dir / "markdown"))
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(temp_dir / "json"))
+    monkeypatch.setattr(config, "get_txt_dir", lambda: str(temp_dir / "txt"))
+    monkeypatch.setattr(config, "get_markdown_dir", lambda: str(temp_dir / "markdown"))
     
     # Создаём директории
     os.makedirs(temp_dir / "json")
@@ -161,7 +180,7 @@ def test_save_article_json(temp_dir, monkeypatch):
         'title': "Test Title",
         'content': "Some content."
     }
-    monkeypatch.setattr(config, "JSON_DIR", str(temp_dir / "json_output"))
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(temp_dir / "json_output"))
     os.makedirs(temp_dir / "json_output")
 
     file_manager.save_article_json(article_data)
@@ -184,7 +203,7 @@ def test_save_article_json_sanitized_filename(temp_dir, monkeypatch):
     
     # Создаем подкаталог для JSON файлов
     json_output_dir = temp_dir / "json_output"
-    monkeypatch.setattr(config, "JSON_DIR", str(json_output_dir))
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(json_output_dir))
     os.makedirs(json_output_dir, exist_ok=True)
 
     file_manager.save_article_json(article_data)
@@ -205,7 +224,7 @@ def test_save_article_json_no_dir(temp_dir, monkeypatch):
         'title': "Test Title",
         'content': "Some content."
     }
-    monkeypatch.setattr(config, "JSON_DIR", str(temp_dir / "json_output"))
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(temp_dir / "json_output"))
 
     file_manager.save_article_json(article_data)
 

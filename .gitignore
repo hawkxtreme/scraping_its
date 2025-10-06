@@ -141,3 +141,4 @@ Thumbs.db
 
 # System prompt file
 system_prompt.md
+.roo/mcp.json

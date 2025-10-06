@@ -4,7 +4,7 @@ import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
 from src import file_manager
 
-def test_cleanup_temp_files(temp_dir):
+def test_cleanup_temp_files(temp_dir, monkeypatch):
     """Тест очистки временных файлов."""
     # Создаем временную директорию для теста
     tmp_index_dir = os.path.join(str(temp_dir), "tmp_index")
@@ -18,18 +18,23 @@ def test_cleanup_temp_files(temp_dir):
     # Проверяем, что файл существует
     assert os.path.exists(test_file)
     
-    # Имитируем config.TMP_INDEX_DIR для теста
-    with patch('src.file_manager.config.TMP_INDEX_DIR', tmp_index_dir):
-        file_manager.cleanup_temp_files()
-        
-        # Проверяем, что временная директория удалена
-        assert not os.path.exists(tmp_index_dir)
+    # Имитируем config.get_tmp_index_dir для теста
+    from src import config
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: tmp_index_dir)
+    
+    file_manager.cleanup_temp_files()
+    
+    # Проверяем, что временная директория удалена
+    assert not os.path.exists(tmp_index_dir)
 
-def test_get_index_path():
+def test_get_index_path(temp_dir, monkeypatch):
     """Тест получения пути к индексу."""
     from src import config
+    test_path = str(temp_dir / "tmp_index")
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: test_path)
+    
     index_path = file_manager.get_index_path()
-    assert index_path == config.TMP_INDEX_DIR
+    assert index_path == test_path
 
 def test_save_article_json_sanitized_filename_edge_cases(temp_dir, monkeypatch):
     """Тест сохранения статьи в формате JSON с граничными случаями очистки имен файлов."""
@@ -43,7 +48,8 @@ def test_save_article_json_sanitized_filename_edge_cases(temp_dir, monkeypatch):
     }
     
     json_output_dir = temp_dir / "json_output"
-    monkeypatch.setattr('src.config.JSON_DIR', str(json_output_dir))
+    from src import config
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(json_output_dir))
     os.makedirs(json_output_dir, exist_ok=True)
 
     file_manager.save_article_json(article_data)
@@ -71,7 +77,8 @@ def test_save_article_content_txt_only(temp_dir, monkeypatch):
     }
     
     txt_output_dir = temp_dir / "txt_output"
-    monkeypatch.setattr('src.config.TXT_DIR', str(txt_output_dir))
+    from src import config
+    monkeypatch.setattr(config, "get_txt_dir", lambda: str(txt_output_dir))
     os.makedirs(txt_output_dir, exist_ok=True)
 
     file_manager.save_article_content(filename_base, formats, soup, article_info)
@@ -100,7 +107,8 @@ def test_save_article_content_json_only(temp_dir, monkeypatch):
     }
     
     json_output_dir = temp_dir / "json_output"
-    monkeypatch.setattr('src.config.JSON_DIR', str(json_output_dir))
+    from src import config
+    monkeypatch.setattr(config, "get_json_dir", lambda: str(json_output_dir))
     os.makedirs(json_output_dir, exist_ok=True)
 
     file_manager.save_article_content(filename_base, formats, soup, article_info)
@@ -130,7 +138,8 @@ def test_save_article_content_markdown_only(temp_dir, monkeypatch):
     }
     
     md_output_dir = temp_dir / "markdown_output"
-    monkeypatch.setattr('src.config.MARKDOWN_DIR', str(md_output_dir))
+    from src import config
+    monkeypatch.setattr(config, "get_markdown_dir", lambda: str(md_output_dir))
     os.makedirs(md_output_dir, exist_ok=True)
 
     file_manager.save_article_content(filename_base, formats, soup, article_info)
@@ -144,14 +153,19 @@ def test_save_article_content_markdown_only(temp_dir, monkeypatch):
         assert "# Test Header" in content or "Test Header" in content  # markdownify может по-разному обрабатывать заголовки
         assert "Test content" in content
 
-def test_load_index_data_empty():
+def test_load_index_data_empty(temp_dir, monkeypatch):
     """Тест загрузки пустого индекса."""
-    with patch('src.file_manager.config.TMP_INDEX_DIR', "/nonexistent"):
-        result = file_manager.load_index_data()
-        assert result == []
+    from src import config
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: "/nonexistent")
+    
+    result = file_manager.load_index_data()
+    assert result == []
 
-def test_load_and_sort_index_empty():
+def test_load_and_sort_index_empty(temp_dir, monkeypatch):
     """Тест загрузки и сортировки пустого индекса."""
-    with patch('src.file_manager.config.TMP_INDEX_DIR', "/nonexistent"):
-        result = file_manager.load_and_sort_index()
-        assert result == []
+    from src import config
+    monkeypatch.setattr(config, "get_tmp_index_dir", lambda: "/nonexistent")
+    
+    # В текущей реализации нет функции load_and_sort_index, поэтому используем load_index_data
+    result = file_manager.load_index_data()
+    assert result == []

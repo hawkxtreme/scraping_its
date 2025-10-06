@@ -59,8 +59,13 @@ def test_config_constants():
     assert config.LOGIN_URL == "https://login.1c.ru/login"
     assert os.path.exists(config.PROJECT_ROOT)
     assert os.path.exists(config.SCRIPT_DIR)
-    assert "out" in config.OUTPUT_DIR
-    assert "json" in config.JSON_DIR.lower()
-    assert "pdf" in config.PDF_DIR.lower()
-    assert "txt" in config.TXT_DIR.lower()
-    assert "markdown" in config.MARKDOWN_DIR.lower()
+    
+    # Тестируем функции для получения путей
+    config.set_output_dir("test_dir")
+    assert "out" in config.get_output_dir()
+    assert "json" in config.get_json_dir().lower()
+    assert "pdf" in config.get_pdf_dir().lower()
+    assert "txt" in config.get_txt_dir().lower()
+    assert "markdown" in config.get_markdown_dir().lower()
+    assert "docx" in config.get_docx_dir().lower()
+    assert "tmp_index" in config.get_tmp_index_dir().lower()
