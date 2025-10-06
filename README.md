@@ -163,6 +163,16 @@ python main.py https://its.1c.ru/db/erp25ltsdoc --no-scrape
 python main.py https://its.1c.ru/db/erp25ltsdoc --force-reindex
 ```
 
+* Обновление только изменённых статей:
+```bash
+python main.py https://its.1c.ru/db/erp25ltsdoc --update
+```
+
+* Обновление статей из раздела cabinetdoc:
+```bash
+python main.py https://its.1c.ru/db/cabinetdoc --update --format json pdf txt markdown
+```
+
 ## Структура проекта
 
 Проект организован в модульной архитектуре:

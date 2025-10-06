@@ -5,9 +5,12 @@ import re
 from urllib.parse import urlparse
 import markdownify
 
-from . import config
+try:
+    from . import config
+except ImportError:
+    import config
 
-def setup_output_directories(formats):
+def setup_output_directories(formats, update_mode=False):
     """Cleans and creates the necessary output directories based on specified formats."""
     # Create base output directory if it doesn't exist
     os.makedirs(config.get_output_dir(), exist_ok=True)
@@ -22,9 +25,10 @@ def setup_output_directories(formats):
 
     for fmt in formats:
         dir_path = format_map.get(fmt)
-        if dir_path and os.path.exists(dir_path):
-            shutil.rmtree(dir_path)
         if dir_path:
+            # In update mode, don't delete existing directories
+            if not update_mode and os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
             os.makedirs(dir_path, exist_ok=True)
 
     # Ensure tmp_index directory exists
@@ -121,6 +125,12 @@ def create_toc_and_meta(articles, formats):
         toc_tree = json.load(f)
 
     create_markdown_toc(toc_tree, articles, formats)
+    
+    # Ensure each article has a content_hash for update tracking
+    for article in articles:
+        if 'content_hash' not in article:
+            article['content_hash'] = None
+    
     create_meta_json(articles, formats)
 
 
@@ -208,3 +218,75 @@ def cleanup_temp_files():
     tmp_index_dir = config.get_tmp_index_dir()
     if os.path.exists(tmp_index_dir):
         shutil.rmtree(tmp_index_dir)
+
+
+def load_existing_meta_data():
+    """Loads existing meta data from _meta.json if it exists."""
+    meta_file = os.path.join(config.get_output_dir(), "_meta.json")
+    if os.path.exists(meta_file):
+        with open(meta_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+def get_articles_to_scrape(articles, existing_meta_data, update_mode=False):
+    """Determines which articles need to be scraped based on content hashes and update mode."""
+    if not update_mode or not existing_meta_data:
+        return articles  # If not in update mode or no existing data, scrape all
+        
+    # Create a lookup dictionary from existing metadata
+    existing_lookup = {}
+    for article in existing_meta_data:
+        if 'url' in article:
+            existing_lookup[article['url']] = article
+    
+    articles_to_scrape = []
+    for article in articles:
+        url = article.get('url')
+        if not url:
+            articles_to_scrape.append(article)  # Include articles without URL
+            continue
+            
+        existing_article = existing_lookup.get(url)
+        if not existing_article:
+            # New article that wasn't in previous scrape
+            articles_to_scrape.append(article)
+        else:
+            # In update mode, we need to scrape all articles to check for content changes
+            # The actual comparison will happen during scraping
+            articles_to_scrape.append(article)
+    
+    return articles_to_scrape
+
+
+def should_force_reindex(toc_tree, existing_meta_data):
+    """Checks if the TOC structure has changed significantly to warrant a force reindex."""
+    if not existing_meta_data:
+        return False  # First time, don't force reindex since we want to process normally
+        
+    # Create mapping of URLs to articles from existing metadata
+    existing_urls = set(article['url'] for article in existing_meta_data if 'url' in article)
+    new_urls = set()
+    
+    # Helper to collect all URLs from the TOC tree
+    def collect_urls(nodes):
+        for node in nodes:
+            if 'url' in node and node['url']:
+                new_urls.add(node['url'])
+            if 'children' in node and node['children']:
+                collect_urls(node['children'])
+    
+    collect_urls(toc_tree)
+    
+    # Check if there are significant changes in URLs
+    new_articles_count = len(new_urls - existing_urls)
+    removed_articles_count = len(existing_urls - new_urls)
+    
+    # If more than 20% of articles are new or removed, force reindex (download all)
+    total_existing = len(existing_urls)
+    if total_existing > 0:
+        change_threshold = 0.2  # 20% threshold
+        significant_change = (new_articles_count + removed_articles_count) / total_existing > change_threshold
+        return significant_change
+    
+    return new_articles_count > 0  # If no existing, but have new ones, don't force since it's just adding

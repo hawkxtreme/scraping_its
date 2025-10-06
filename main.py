@@ -31,6 +31,7 @@ async def main():
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
+    parser.add_argument("--update", action="store_true", help="Only update articles that have changed since last run.")
     parser.add_argument("-p", "--parallel", type=int, default=1, help="Number of parallel download streams.")
     args = parser.parse_args()
 
@@ -62,7 +63,7 @@ async def main():
         # --- Step 2: Initial Setup ---
         print("\nStep 2: Setting up output directories...")
         log_func("Step 2: Setting up output directories...")
-        file_manager.setup_output_directories(args.format)
+        file_manager.setup_output_directories(args.format, update_mode=args.update)
         print("Directories ready.")
         log_func("Directory setup complete.")
 
@@ -71,12 +72,28 @@ async def main():
         log_func("Step 3: Logging in and creating article index...")
         await scraper_instance.connect()
         await scraper_instance.login()
+        
+        # Load existing metadata before index operations for update mode
+        existing_meta_data = file_manager.load_existing_meta_data()
+        
         if args.force_reindex or not os.path.exists(os.path.join(file_manager.get_index_path(), "_toc_tree.json")):
             toc_tree = await scraper_instance.get_initial_toc(args.url, args.chapter)
             file_manager.save_hierarchical_index(toc_tree)
         else:
             print("Index found, skipping index creation. Use --force-reindex to override.")
             log_func("Index found, skipping index creation.")
+            
+            # Load the existing TOC tree to check for structural changes
+            index_file = os.path.join(file_manager.get_index_path(), "_toc_tree.json")
+            with open(index_file, "r", encoding="utf-8") as f:
+                toc_tree = json.load(f)
+                
+            # Check if structure has changed significantly when using --update flag
+            if args.update and file_manager.should_force_reindex(toc_tree, existing_meta_data):
+                print("TOC structure changed significantly, forcing reindex for all articles.")
+                log_func("TOC structure changed significantly, forcing reindex.")
+                args.force_reindex = True  # Set flag to force reindexing of all articles
+                
         await scraper_instance.close()
 
         # --- Step 4: Final Scraping ---
@@ -87,6 +104,16 @@ async def main():
             articles_to_scrape = file_manager.load_index_data()
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
+                
+            # If in update mode, determine which articles need updating
+            if args.update and not args.force_reindex:
+                articles_to_scrape = file_manager.get_articles_to_scrape(articles_to_scrape, existing_meta_data, update_mode=True)
+                if not articles_to_scrape:
+                    print("No articles need updating. Exiting.")
+                    log_func("No articles need updating.")
+                    return
+                print(f"Update mode: {len(articles_to_scrape)} articles need updating out of {len(file_manager.load_index_data())} total.")
+                log_func(f"Update mode: {len(articles_to_scrape)} articles need updating.")
 
             shared_hashes = set()
 
@@ -105,7 +132,7 @@ async def main():
                     while not queue.empty():
                         try:
                             article_info, index = await queue.get()
-                            await scraper.scrape_single_article(article_info, args.format, index, pbar)
+                            await scraper.scrape_single_article(article_info, args.format, index, pbar, update_mode=args.update)
                             queue.task_done()
                         except asyncio.CancelledError:
                             break
@@ -130,7 +157,7 @@ async def main():
                     await scraper.connect()
                     await scraper.login()
                     for i, article_info in enumerate(articles_to_scrape):
-                        await scraper.scrape_single_article(article_info, args.format, i, pbar)
+                        await scraper.scrape_single_article(article_info, args.format, i, pbar, update_mode=args.update)
                     await scraper.close()
 
             # --- Step 5: Create TOC and Meta files ---

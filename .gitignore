@@ -138,3 +138,6 @@ dmypy.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# System prompt file
+system_prompt.md

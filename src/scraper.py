@@ -84,7 +84,7 @@ class Scraper:
 
 
 
-    async def scrape_single_article(self, article_info, formats, i, pbar):
+    async def scrape_single_article(self, article_info, formats, i, pbar, update_mode=False):
         """Scrapes the final content for a single article."""
         page = None
         try:
@@ -110,6 +110,14 @@ class Scraper:
                 pbar.update(1)
                 return
             
+            # In update mode, check if content has changed compared to existing metadata
+            if update_mode and 'content_hash' in article_info:
+                existing_hash = article_info.get('content_hash')
+                if existing_hash == content_hash:
+                    self.log(f"  - Skipping unchanged article: {article_info['title']}")
+                    pbar.update(1)
+                    return
+            
             # Add to hashes only if content is not empty
             if content_hash != 0 and content_hash is not None:
                 self.scraped_content_hashes.add(content_hash)
@@ -124,9 +132,12 @@ class Scraper:
                 number = f"{i+1:03d}"
                 sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
                 filename_base = f"{number}_{sanitized_title[:50]}"
-            # IMPORTANT: Ensure the filename_base is stored back in the article_info dict 
+            # IMPORTANT: Ensure the filename_base is stored back in the article_info dict
             # so it can be used by the TOC and metadata generation.
             article_info["filename_base"] = filename_base
+
+            # Add content hash to article_info so it's preserved in meta.json
+            article_info["content_hash"] = content_hash
 
             # Save article content in specified formats
             file_manager.save_article_content(filename_base, formats, soup, article_info)
