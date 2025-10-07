@@ -29,11 +29,35 @@ class Scraper:
         self.context = await self.browser.new_context()
 
     async def close(self):
-        """Closes browser connection and Playwright instance."""
-        if self.context: await self.context.close()
-        if self.browser: await self.browser.close()
-        if self.playwright: await self.playwright.stop()
-        self.log("Browser connection closed.")
+        """Closes the browser context, leaving the browser connection open for other workers."""
+        if self.context:
+            await self.context.close()
+        # The browser connection and Playwright instance are managed by other workers
+        # or the main process and should not be closed here to prevent race conditions.
+        self.log("Browser context closed, connection remains open for other workers.")
+
+    async def reconnect(self):
+        """Safely closes existing connections and re-establishes a new one."""
+        self.log("Attempting to reconnect...")
+        try:
+            if self.context and not self.context.is_closed():
+                await self.context.close()
+        except Exception as e:
+            self.log(f"Warning: Error closing context during reconnect: {e}")
+        try:
+            if self.browser and self.browser.is_connected():
+                await self.browser.close()
+        except Exception as e:
+            self.log(f"Warning: Error closing browser during reconnect: {e}")
+        try:
+            if self.playwright:
+                await self.playwright.stop()
+        except Exception as e:
+            self.log(f"Warning: Error stopping playwright during reconnect: {e}")
+        
+        await self.connect()
+        await self.login()
+        self.log("Reconnect successful.")
 
     async def login(self):
         """Performs login to the website."""
@@ -88,58 +112,54 @@ class Scraper:
         """Scrapes the final content for a single article."""
         page = None
         try:
+            self.log(f"  -> Attempting to scrape: {article_info['title']} ({article_info['url']})")
             page = await self.context.new_page()
-            await page.goto(article_info['url'], timeout=90000)
-            await page.wait_for_load_state('networkidle')
 
-            parser_module = parser.get_parser_for_url(article_info['url'])
+            try:
+                await page.goto(article_info['url'], timeout=120000) # Increased timeout
+                await page.wait_for_load_state('networkidle', timeout=60000)
 
-            if parser_module.__name__ == 'src.parser_v2' or 'cabinetdoc' in article_info['url']:
-                content_html = await page.content()
-                soup, _, content_hash = parser_module.parse_article_page(content_html)
-            else:
-                article_frame = page.frame(name="w_metadata_doc_frame")
-                if not article_frame:
-                    raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
-                iframe_html = await article_frame.content()
-                soup, _, content_hash = parser_module.parse_article_page(iframe_html)
+                parser_module = parser.get_parser_for_url(article_info['url'])
 
-            # Check for duplicate content - but be less aggressive
+                if parser_module.__name__ == 'src.parser_v2' or 'cabinetdoc' in article_info['url']:
+                    content_html = await page.content()
+                    soup, _, content_hash = parser_module.parse_article_page(content_html)
+                else:
+                    article_frame = page.frame(name="w_metadata_doc_frame")
+                    if not article_frame:
+                        raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
+                    iframe_html = await article_frame.content()
+                    soup, _, content_hash = parser_module.parse_article_page(iframe_html)
+
+            except PlaywrightError as pe:
+                self.log(f"  - SKIPPING ARTICLE due to page-level PlaywrightError: {article_info['title']} - {pe}")
+                # This error is often fatal to the browser connection, so we trigger the reconnect logic.
+                raise pe
+
+            # Check for duplicate content
             if content_hash in self.scraped_content_hashes:
                 self.log(f"  - Skipping duplicate content: {article_info['title']} (hash: {content_hash})")
-                pbar.update(1)
                 return
             
-            # In update mode, check if content has changed compared to existing metadata
-            if update_mode and 'content_hash' in article_info:
-                existing_hash = article_info.get('content_hash')
-                if existing_hash == content_hash:
-                    self.log(f"  - Skipping unchanged article: {article_info['title']}")
-                    pbar.update(1)
-                    return
-            
-            # Add to hashes only if content is not empty
+            if update_mode and 'content_hash' in article_info and article_info.get('content_hash') == content_hash:
+                self.log(f"  - Skipping unchanged article: {article_info['title']}")
+                return
+
             if content_hash != 0 and content_hash is not None:
                 self.scraped_content_hashes.add(content_hash)
             else:
                 self.log(f"  - Warning: Empty or invalid content hash for {article_info['title']}, proceeding anyway")
 
-            # Use the filename_base provided by the index loader
             filename_base = article_info.get("filename_base")
             if not filename_base:
-                # Fallback for safety, though it shouldn't be needed
-                self.log(f"Warning: filename_base not found for {article_info['title']}. Generating a fallback.")
+                self.log(f"Warning: filename_base not found for {article_info['title']}. Generating fallback.")
                 number = f"{i+1:03d}"
                 sanitized_title = "".join([c for c in article_info['title'].lower() if c.isalnum() or c==' ']).rstrip().replace(" ", "_")
                 filename_base = f"{number}_{sanitized_title[:50]}"
-            # IMPORTANT: Ensure the filename_base is stored back in the article_info dict
-            # so it can be used by the TOC and metadata generation.
+            
             article_info["filename_base"] = filename_base
-
-            # Add content hash to article_info so it's preserved in meta.json
             article_info["content_hash"] = content_hash
 
-            # Save article content in specified formats
             file_manager.save_article_content(filename_base, formats, soup, article_info)
             self.log(f"  - Saved article: {article_info['title']} (filename: {filename_base})")
             
@@ -149,11 +169,19 @@ class Scraper:
                 self.log(f"  - Saved PDF: {pdf_path}")
             
             await asyncio.sleep(0.5)
-            pbar.update(1)
+
         except Exception as e:
-            self.log(f"  - NON-FATAL ERROR during final scraping of {article_info['title']}: {e}")
+            self.log(f"  - NON-FATAL WORKER-LEVEL ERROR for {article_info['title']}: {e}")
+            error_str = str(e).lower()
+            if "browser has been closed" in error_str or "target page, context" in error_str:
+                self.log("!!! Critical browser error detected. Attempting to recover by reconnecting...")
+                try:
+                    await self.reconnect()
+                except Exception as recon_e:
+                    self.log(f"!!! RECONNECT FAILED: {recon_e}. This worker will likely fail on subsequent tasks.")
         finally:
             await self._safely_close_page(page)
+            pbar.update(1) # Ensure progress bar always updates
 
     async def _safely_close_page(self, page: Page):
         """Helper function to safely close a page."""

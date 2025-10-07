@@ -141,3 +141,11 @@ Thumbs.db
 
 # System prompt file
 system_prompt.md
+
+# RooCode cache and logs
+.roo/cache/
+.roo/logs/
+roocode-project.json
+.roo/mcp.json
+
+.gemini/settings.json
