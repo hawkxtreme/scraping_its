@@ -149,3 +149,6 @@ roocode-project.json
 .roo/mcp.json
 
 .gemini/settings.json
+.roo/task/main.md
+.gitignore
+.roo/task/problem_context.md

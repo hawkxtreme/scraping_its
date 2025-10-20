@@ -108,7 +108,7 @@ class Scraper:
 
 
 
-    async def scrape_single_article(self, article_info, formats, i, pbar, update_mode=False):
+    async def scrape_single_article(self, article_info, formats, i, pbar, update_mode=False, rag_mode=False):
         """Scrapes the final content for a single article."""
         page = None
         try:
@@ -160,7 +160,7 @@ class Scraper:
             article_info["filename_base"] = filename_base
             article_info["content_hash"] = content_hash
 
-            file_manager.save_article_content(filename_base, formats, soup, article_info)
+            file_manager.save_article_content(filename_base, formats, soup, article_info, rag_mode=rag_mode)
             self.log(f"  - Saved article: {article_info['title']} (filename: {filename_base})")
             
             if 'pdf' in formats:

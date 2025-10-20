@@ -71,13 +71,14 @@ def _save_article_json_and_txt_legacy(content, article_info):
         f.write(f"Title: {article_info['title']}\n")
         f.write(f"URL: {article_info['url']}\n\n")
         f.write(content)
-def save_article_content(filename_base, formats, soup, article_info):
+def save_article_content(filename_base, formats, soup, article_info, rag_mode=False):
     """
     Сохраняет статью в указанных форматах (txt, json, markdown, pdf) по имени файла.
     - filename_base: базовое имя файла (без расширения)
     - formats: список форматов (например, ['txt', 'json', 'markdown'])
     - soup: BeautifulSoup-объект с содержимым статьи
     - article_info: словарь с метаданными статьи
+    - rag_mode: если True, добавляет breadcrumbs в markdown файлы
     """
     text_content = soup.get_text(separator='\n', strip=True)
     article_data = {
@@ -104,6 +105,29 @@ def save_article_content(filename_base, formats, soup, article_info):
     if 'markdown' in formats:
         md_file = os.path.join(config.get_markdown_dir(), f"{filename_base}.md")
         md_content = markdownify.markdownify(str(soup), heading_style="ATX")
+        
+        # Add YAML frontmatter if RAG mode is enabled
+        if rag_mode:
+            frontmatter_lines = ["---"]
+            
+            # Add breadcrumb
+            if 'breadcrumb' in article_info:
+                frontmatter_lines.append("breadcrumb:")
+                for crumb in article_info['breadcrumb']:
+                    frontmatter_lines.append(f"- {crumb}")
+            
+            # Add other metadata
+            if 'content_hash' in article_info:
+                frontmatter_lines.append(f"content_hash: {article_info['content_hash']}")
+            if 'title' in article_info:
+                frontmatter_lines.append(f"title: {article_info['title']}")
+            if 'url' in article_info:
+                frontmatter_lines.append(f"url: {article_info['url']}")
+            
+            frontmatter_lines.append("---")
+            frontmatter = "\n".join(frontmatter_lines)
+            md_content = f"{frontmatter}\n\n{md_content}"
+        
         with open(md_file, 'w', encoding='utf-8') as f:
             f.write(md_content)
 

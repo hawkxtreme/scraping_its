@@ -33,6 +33,7 @@ async def main():
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
     parser.add_argument("--update", action="store_true", help="Only update articles that have changed since last run.")
     parser.add_argument("-p", "--parallel", type=int, default=1, help="Number of parallel download streams.")
+    parser.add_argument("--rag", action="store_true", help="Add breadcrumbs to markdown files for RAG systems.")
     args = parser.parse_args()
 
     # --- Dynamic Directory Setup ---
@@ -132,7 +133,7 @@ async def main():
                     while not queue.empty():
                         try:
                             article_info, index = await queue.get()
-                            await scraper.scrape_single_article(article_info, args.format, index, pbar, update_mode=args.update)
+                            await scraper.scrape_single_article(article_info, args.format, index, pbar, update_mode=args.update, rag_mode=args.rag)
                             queue.task_done()
                         except asyncio.CancelledError:
                             break
@@ -157,7 +158,7 @@ async def main():
                     await scraper.connect()
                     await scraper.login()
                     for i, article_info in enumerate(articles_to_scrape):
-                        await scraper.scrape_single_article(article_info, args.format, i, pbar, update_mode=args.update)
+                        await scraper.scrape_single_article(article_info, args.format, i, pbar, update_mode=args.update, rag_mode=args.rag)
                     await scraper.close()
 
             # --- Step 5: Create TOC and Meta files ---
