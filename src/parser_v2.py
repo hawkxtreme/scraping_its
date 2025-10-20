@@ -35,11 +35,51 @@ def extract_toc_links(html_content):
 def parse_article_page(html_content):
     """
     Parses the HTML of an article's content to find the main text and nested links.
+    For v8std pages with /content/XXX/hdoc URLs, content is in an iframe.
     """
     soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Try to find content in div#w_content first (browse pages)
     content_div = soup.find('div', id='w_content')
+    
+    # If not found, try to find iframe (content pages like /content/467/hdoc)
     if not content_div:
-        raise ValueError("Could not find content div with id 'w_content'.")
+        # Look for iframe with article content
+        iframe = soup.find('iframe', id='w_metadata_doc_frame')
+        if iframe:
+            # For iframe-based pages, we need to extract from the iframe's src
+            # But since we're already parsing the page content, let's look for the actual content div
+            # In the main page structure after the iframe loads
+            pass
+        
+        # Try alternative selectors for content
+        content_div = soup.find('div', class_='content')
+        if not content_div:
+            content_div = soup.find('div', class_='document-content')
+        if not content_div:
+            # Try to find any div with substantial content
+            content_div = soup.find('div', id='l_content')
+        
+        if not content_div:
+            # Last resort: look for main content area
+            main_divs = soup.find_all('div', class_='content-wrapper')
+            if main_divs:
+                content_div = main_divs[0]
+    
+    if not content_div:
+        # If still not found, use the body but exclude navigation/footer
+        body = soup.find('body')
+        if body:
+            # Remove navigation and footer elements
+            for nav in body.find_all(['nav', 'header', 'footer']):
+                nav.decompose()
+            for script in body.find_all('script'):
+                script.decompose()
+            for style in body.find_all('style'):
+                style.decompose()
+            content_div = body
+        else:
+            raise ValueError("Could not find content in the page.")
 
     # Calculate content hash - include URL for uniqueness
     article_text = content_div.get_text(separator='\n', strip=True)

@@ -16,13 +16,13 @@ def test_help_output():
     # Create the same parser as in main.py to test help functionality
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.", add_help=False)
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     parser.add_argument('-h', '--help', action='help', help='show this help message and exit')
     
     # Capture help output by redirecting print_help
@@ -44,22 +44,22 @@ def test_help_with_argparse_directly():
     # Create the same parser as in main.py
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.", add_help=False)
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     parser.add_argument('-h', '--help', action='help', help='show this help message and exit')
     
     # When --help is provided, argparse should print help and exit
     # We will just check that parser configuration is correct by parsing --help without exit
     assert 'url' in [action.dest for action in parser._actions]
-    assert 'chapter' in [action.dest for action in parser._actions]
     assert 'format' in [action.dest for action in parser._actions]
     assert 'no_scrape' in [action.dest for action in parser._actions]
     assert 'force_reindex' in [action.dest for action in parser._actions]
+    assert 'limit' in [action.dest for action in parser._actions]
 
 
 def test_command_line_parsing():
@@ -69,40 +69,39 @@ def test_command_line_parsing():
     # Создаем такой же парсер, как в main.py
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.")
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     
     # Тестируем различные комбинации аргументов
     test_cases = [
         # URL обязательный параметр
-        (['https://example.com'], {'url': 'https://example.com', 'chapter': None, 
-                                   'format': ['json'], 'no_scrape': False, 'force_reindex': False}),
+        (['https://example.com'], {'url': 'https://example.com', 
+                                   'format': ['json'], 'no_scrape': False, 'force_reindex': False, 'limit': None}),
         # С одним форматом
-        (['https://example.com', '-f', 'pdf'], {'url': 'https://example.com', 'chapter': None, 
-                                                'format': ['pdf'], 'no_scrape': False, 'force_reindex': False}),
+        (['https://example.com', '-f', 'pdf'], {'url': 'https://example.com', 
+                                                'format': ['pdf'], 'no_scrape': False, 'force_reindex': False, 'limit': None}),
         # С несколькими форматами
         (['https://example.com', '--format', 'json', 'pdf', 'txt'], {'url': 'https://example.com', 
-                                                                      'chapter': None, 'format': ['json', 'pdf', 'txt'], 
-                                                                      'no_scrape': False, 'force_reindex': False}),
-        # С chapter
-        (['https://example.com', '--chapter', 'Test Chapter'], {'url': 'https://example.com', 
-                                                                'chapter': 'Test Chapter', 'format': ['json'], 
-                                                                'no_scrape': False, 'force_reindex': False}),
+                                                                      'format': ['json', 'pdf', 'txt'], 
+                                                                      'no_scrape': False, 'force_reindex': False, 'limit': None}),
+        # С limit
+        (['https://example.com', '--limit', '5'], {'url': 'https://example.com', 
+                                                    'format': ['json'], 'no_scrape': False, 'force_reindex': False, 'limit': 5}),
         # С флагами
-        (['https://example.com', '--no-scrape'], {'url': 'https://example.com', 'chapter': None, 
-                                                  'format': ['json'], 'no_scrape': True, 'force_reindex': False}),
+        (['https://example.com', '--no-scrape'], {'url': 'https://example.com', 
+                                                  'format': ['json'], 'no_scrape': True, 'force_reindex': False, 'limit': None}),
         # С force-reindex
-        (['https://example.com', '--force-reindex'], {'url': 'https://example.com', 'chapter': None, 
-                                                      'format': ['json'], 'no_scrape': False, 'force_reindex': True}),
+        (['https://example.com', '--force-reindex'], {'url': 'https://example.com', 
+                                                      'format': ['json'], 'no_scrape': False, 'force_reindex': True, 'limit': None}),
         # Комбинация всех параметров
-        (['https://example.com', '-c', 'Test Chapter', '-f', 'json', 'pdf', 
-          '--no-scrape', '--force-reindex'], {'url': 'https://example.com', 'chapter': 'Test Chapter', 
-                                              'format': ['json', 'pdf'], 'no_scrape': True, 'force_reindex': True}),
+        (['https://example.com', '-f', 'json', 'pdf', '--limit', '10',
+          '--no-scrape', '--force-reindex'], {'url': 'https://example.com', 
+                                              'format': ['json', 'pdf'], 'no_scrape': True, 'force_reindex': True, 'limit': 10}),
     ]
     
     for args, expected_values in test_cases:
@@ -110,10 +109,10 @@ def test_command_line_parsing():
         
         # Проверяем каждый атрибут
         assert parsed.url == expected_values['url']
-        assert parsed.chapter == expected_values['chapter']
         assert parsed.format == expected_values['format']
         assert parsed.no_scrape == expected_values['no_scrape']
         assert parsed.force_reindex == expected_values['force_reindex']
+        assert parsed.limit == expected_values['limit']
 
 
 def test_format_choices_validation():
@@ -142,17 +141,17 @@ def test_main_with_mocked_dependencies():
     import argparse
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.")
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     
-    args = parser.parse_args(['https://example.com', '-f', 'json', 'pdf', '--chapter', 'Test'])
+    args = parser.parse_args(['https://example.com', '-f', 'json', 'pdf', '--limit', '10'])
     assert args.url == 'https://example.com'
-    assert args.chapter == 'Test'
+    assert args.limit == 10
     assert args.format == ['json', 'pdf']
     assert args.no_scrape is False
     assert args.force_reindex is False
@@ -186,31 +185,48 @@ def test_command_line_with_force_reindex_flag():
     assert args.force_reindex is True
 
 
+def test_command_line_with_limit_flag():
+    """Тест командной строки с флагом --limit"""
+    import argparse
+    
+    parser = ArgumentParser(description="Scrape articles from its.1c.ru.")
+    parser.add_argument("url", help="The starting URL for scraping.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
+    
+    args = parser.parse_args(['https://example.com', '--limit', '5'])
+    assert args.url == 'https://example.com'
+    assert args.limit == 5
+    
+    # Без флага
+    args = parser.parse_args(['https://example.com'])
+    assert args.limit is None
+
+
 def test_all_command_line_options_combination():
     """Тест комбинации всех опций командной строки"""
     import argparse
     
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.")
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     
     # Тестируем комбинацию всех опций
     args = parser.parse_args([
         'https://example.com', 
-        '--chapter', 'Advanced Techniques', 
+        '--limit', '3',
         '--format', 'json', 'pdf', 'txt', 'markdown',
         '--no-scrape',
         '--force-reindex'
     ])
     
     assert args.url == 'https://example.com'
-    assert args.chapter == 'Advanced Techniques'
+    assert args.limit == 3
     assert args.format == ['json', 'pdf', 'txt', 'markdown']
     assert args.no_scrape is True
     assert args.force_reindex is True
@@ -284,25 +300,25 @@ def test_all_arguments_combined():
     import argparse
     parser = ArgumentParser(description="Scrape articles from its.1c.ru.")
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], 
                       default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", 
                       help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", 
                       help="Force re-indexing of all articles.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     
     # Комбинация всех аргументов
     args = parser.parse_args([
         'https://example.com',
-        '--chapter', 'Test Chapter', 
+        '--limit', '10',
         '--format', 'json', 'pdf', 'txt',
         '--no-scrape',
         '--force-reindex'
     ])
     
     assert args.url == 'https://example.com'
-    assert args.chapter == 'Test Chapter'
+    assert args.limit == 10
     assert args.format == ['json', 'pdf', 'txt']
     assert args.no_scrape is True
     assert args.force_reindex is True

@@ -173,69 +173,6 @@ async def test_scraper_get_initial_toc(mock_logger, mock_playwright):
                 for link in links:
                     assert all(key in link for key in ["url", "title", "original_order"])
 
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_scraper_get_initial_toc_with_target_chapter(mock_logger, mock_playwright):
-    """Тест получения начального оглавления с указанием целевой главы."""
-    test_url = "https://its.1c.ru/db/test"
-    target_chapter = "Article 1"
-    
-    # Создаем полноценный AsyncMock для страницы
-    mock_page = AsyncMock()
-    mock_page.content = AsyncMock(return_value="""
-    <html>
-    <body>
-        <div id="w_metadata_toc">
-            <ul>
-                <li><a href="/db/article1">Article 1</a></li>
-                <li><a href="/db/article2">Article 2</a></li>
-            </ul>
-        </div>
-    </body>
-    </html>
-    """)
-    mock_page.goto = AsyncMock()
-    mock_page.wait_for_load_state = AsyncMock()
-
-    # Мокаем context.new_page, чтобы он возвращал mock_page
-    mock_playwright.context.new_page = AsyncMock(return_value=mock_page)
-    
-    # Create a mock for the result of async_playwright() that has start() method
-    mock_async_playwright_result = MagicMock()
-    mock_async_playwright_result.start = AsyncMock(return_value=mock_playwright)
-    
-    with patch("src.scraper.async_playwright", return_value=mock_async_playwright_result):
-        with patch("src.parser_v1.extract_toc_links", return_value=[
-            {"title": "Article 1", "url": "https://its.1c.ru/db/article1", "original_order": 0},
-            {"title": "Article 2", "url": "https://its.1c.ru/db/article2", "original_order": 1}
-        ]):
-            scraper = Scraper(mock_logger)
-            await scraper.connect()
-            # Мокаем page.content() внутри метода get_initial_toc
-            with patch.object(scraper.context, 'new_page') as mock_new_page:
-                mock_page_instance = AsyncMock()
-                mock_page_instance.content.return_value = """
-                <html>
-                <body>
-                    <div id="w_metadata_toc">
-                        <ul>
-                            <li><a href="/db/article1">Article 1</a></li>
-                            <li><a href="/db/article2">Article 2</a></li>
-                        </ul>
-                    </div>
-                </body>
-                </html>
-                """
-                mock_page_instance.goto = AsyncMock()
-                mock_page_instance.wait_for_load_state = AsyncMock()
-                mock_new_page.return_value = mock_page_instance
-                
-                links = await scraper.get_initial_toc(test_url, target_chapter)
-                
-                assert isinstance(links, list)
-                assert len(links) == 1
-                assert links[0]["title"] == target_chapter
-                assert links[0]["url"] == "https://its.1c.ru/db/article1"
 
 @pytest.mark.unit
 @pytest.mark.asyncio

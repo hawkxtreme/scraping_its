@@ -102,6 +102,90 @@ class Scraper:
         finally:
             await self._safely_close_page(page)
 
+    async def discover_nested_articles(self, toc_tree, max_depth=3):
+        """
+        Recursively discovers nested articles within pages (for parser_v2).
+        
+        Args:
+            toc_tree: Initial TOC tree structure
+            max_depth: Maximum recursion depth
+            
+        Returns:
+            Updated TOC tree with discovered nested articles
+        """
+        visited_urls = set()
+        
+        async def process_node(node, current_depth):
+            """Recursively process a node and discover nested links."""
+            if current_depth >= max_depth:
+                return
+                
+            url = node.get("url")
+            if not url or url in visited_urls:
+                return
+                
+            visited_urls.add(url)
+            
+            # Visit the page and extract nested links
+            page = None
+            try:
+                page = await self.context.new_page()
+                await page.goto(url, timeout=90000)
+                await page.wait_for_load_state('networkidle')
+                page_content = await page.content()
+                
+                parser_module = parser.get_parser_for_url(url)
+                
+                # For parser_v2, parse the page to find nested links
+                if parser_module.__name__ == 'src.parser_v2':
+                    try:
+                        # Check if page has iframe with content
+                        article_frame = page.frame(name="w_metadata_doc_frame")
+                        if article_frame:
+                            # Content is in iframe (like /content/ pages)
+                            iframe_html = await article_frame.content()
+                            _, nested_links, _ = parser_module.parse_article_page(iframe_html)
+                        else:
+                            # Content is in main page (like /browse/ pages)
+                            _, nested_links, _ = parser_module.parse_article_page(page_content)
+                        
+                        # Add nested links as children if not already present
+                        existing_urls = {child.get("url") for child in node.get("children", [])}
+                        
+                        for nested_link in nested_links:
+                            nested_url = nested_link.get("url")
+                            if nested_url and nested_url not in existing_urls and nested_url not in visited_urls:
+                                new_node = {
+                                    "title": nested_link.get("title"),
+                                    "url": nested_url,
+                                    "children": []
+                                }
+                                node.setdefault("children", []).append(new_node)
+                                
+                                # Recursively process the new node
+                                await process_node(new_node, current_depth + 1)
+                                
+                    except Exception as e:
+                        self.log(f"  - Could not parse nested links from {url}: {e}")
+                        
+            except Exception as e:
+                self.log(f"  - Could not visit {url} for nested discovery: {e}")
+            finally:
+                await self._safely_close_page(page)
+            
+            # Process existing children
+            for child in node.get("children", []):
+                await process_node(child, current_depth + 1)
+        
+        # Process all top-level nodes
+        for node in toc_tree:
+            await process_node(node, 0)
+            
+        total_discovered = len(visited_urls)
+        self.log(f"Discovered {total_discovered} total articles through recursive search.")
+        
+        return toc_tree
+
 
 
     async def scrape_single_article(self, article_info, formats, i, pbar, update_mode=False, rag_mode=False):
@@ -117,10 +201,21 @@ class Scraper:
 
                 parser_module = parser.get_parser_for_url(article_info['url'])
 
-                if parser_module.__name__ == 'src.parser_v2' or 'cabinetdoc' in article_info['url']:
-                    content_html = await page.content()
-                    soup, _, content_hash = parser_module.parse_article_page(content_html)
+                # For parser_v2, check if page uses iframe (like /content/XXX/hdoc pages)
+                if parser_module.__name__ == 'src.parser_v2':
+                    # Check if page has iframe with content
+                    article_frame = page.frame(name="w_metadata_doc_frame")
+                    if article_frame:
+                        # Content is in iframe (like /content/ pages)
+                        self.log(f"  - Extracting from iframe for {article_info['url']}")
+                        iframe_html = await article_frame.content()
+                        soup, _, content_hash = parser_module.parse_article_page(iframe_html)
+                    else:
+                        # Content is in main page (like /browse/ pages)
+                        content_html = await page.content()
+                        soup, _, content_hash = parser_module.parse_article_page(content_html)
                 else:
+                    # Parser V1 - always uses iframe
                     article_frame = page.frame(name="w_metadata_doc_frame")
                     if not article_frame:
                         raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
