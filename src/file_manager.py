@@ -187,8 +187,16 @@ def create_meta_json(articles, formats):
     with open(os.path.join(config.get_output_dir(), "_meta.json"), "w", encoding="utf-8") as f:
         json.dump(articles, f, ensure_ascii=False, indent=4)
 
-def load_index_data():
-    """Loads the hierarchical index, flattens it, and returns a list of articles to scrape."""
+def load_index_data(limit=None):
+    """
+    Loads the hierarchical index, flattens it, and returns a list of articles to scrape.
+    
+    Args:
+        limit (int, optional): Maximum number of articles to return. If None, returns all articles.
+    
+    Returns:
+        list: List of article dictionaries to scrape.
+    """
     index_file = os.path.join(config.get_tmp_index_dir(), "_toc_tree.json")
     if not os.path.exists(index_file):
         return []
@@ -208,6 +216,10 @@ def load_index_data():
 
     def traverse(nodes, breadcrumbs, counter):
         for node in nodes:
+            # Stop if we've reached the limit
+            if limit is not None and len(flat_list) >= limit:
+                return counter
+                
             # Only process nodes that have a URL (i.e., are articles)
             if "url" in node and node["url"]:
                 # Format index with zero padding
@@ -224,10 +236,17 @@ def load_index_data():
                 }
                 flat_list.append(article_data)
                 counter += 1
+                
+                # Stop if we've reached the limit after adding this article
+                if limit is not None and len(flat_list) >= limit:
+                    return counter
             
             # Recursively process children, carrying the counter forward
             if "children" in node and node["children"]:
                 counter = traverse(node["children"], breadcrumbs + [node["title"]], counter)
+                # Stop if we've reached the limit
+                if limit is not None and len(flat_list) >= limit:
+                    return counter
         return counter
 
     traverse(toc_tree, [], 1) # Start indexing from 1

@@ -81,7 +81,7 @@ class Scraper:
         finally:
             await self._safely_close_page(page)
 
-    async def get_initial_toc(self, url, target_chapter):
+    async def get_initial_toc(self, url):
         """Scrapes the initial table of contents."""
         page = None
         try:
@@ -94,10 +94,6 @@ class Scraper:
             parser_module = parser.get_parser_for_url(url)
             initial_toc_links = parser_module.extract_toc_links(page_content)
             self.log(f"Found {len(initial_toc_links)} initial links.")
-
-            if target_chapter:
-                initial_toc_links = [link for link in initial_toc_links if link['title'] == target_chapter]
-                self.log(f"Filtered to {len(initial_toc_links)} links based on chapter: '{target_chapter}'.")
 
             return initial_toc_links
         except Exception as e:

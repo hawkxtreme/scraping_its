@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import os
 import sys
 import time
@@ -27,13 +28,13 @@ async def main():
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description="Scrape articles from its.1c.ru.")
     parser.add_argument("url", help="The starting URL for scraping.")
-    parser.add_argument("-c", "--chapter", help="Scrape a specific chapter title.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
     parser.add_argument("--update", action="store_true", help="Only update articles that have changed since last run.")
     parser.add_argument("-p", "--parallel", type=int, default=1, help="Number of parallel download streams.")
     parser.add_argument("--rag", action="store_true", help="Add breadcrumbs to markdown files for RAG systems.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     args = parser.parse_args()
 
     # --- Dynamic Directory Setup ---
@@ -78,7 +79,7 @@ async def main():
         existing_meta_data = file_manager.load_existing_meta_data()
         
         if args.force_reindex or not os.path.exists(os.path.join(file_manager.get_index_path(), "_toc_tree.json")):
-            toc_tree = await scraper_instance.get_initial_toc(args.url, args.chapter)
+            toc_tree = await scraper_instance.get_initial_toc(args.url)
             file_manager.save_hierarchical_index(toc_tree)
         else:
             print("Index found, skipping index creation. Use --force-reindex to override.")
@@ -102,9 +103,15 @@ async def main():
             print(f"\nStep 4: Starting final scrape using {args.parallel} parallel stream(s)...")
             log_func(f"Step 4: Starting final scrape using {args.parallel} parallel stream(s)...")
             
-            articles_to_scrape = file_manager.load_index_data()
+            articles_to_scrape = file_manager.load_index_data(limit=args.limit)
             if not articles_to_scrape:
                 print_fatal_error("Index is empty. Nothing to scrape.", log_func)
+            
+            # Log limit information if set
+            if args.limit:
+                total_articles = len(file_manager.load_index_data())
+                print(f"Limit mode: scraping {len(articles_to_scrape)} out of {total_articles} articles.")
+                log_func(f"Limit mode: scraping {len(articles_to_scrape)} out of {total_articles} articles.")
                 
             # If in update mode, determine which articles need updating
             if args.update and not args.force_reindex:

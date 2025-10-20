@@ -85,10 +85,9 @@ python main.py -h
 Все доступные команды
 
 ```
-usage: main.py [-h] [-c CHAPTER]
-               [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]]
+usage: main.py [-h] [-f {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]]
                [--no-scrape] [--force-reindex] [--update] 
-               [-p PARALLEL] [--rag]
+               [-p PARALLEL] [--rag] [--limit LIMIT]
                url
 
 Скраппинг статей с its.1c.ru.
@@ -98,8 +97,6 @@ positional arguments:
 
 options:
   -h, --help            показать это сообщение и выйти
-  -c, --chapter CHAPTER
-                        Название главы для выборочного скрапинга
   -f, --format {json,pdf,txt,markdown} [{json,pdf,txt,markdown} ...]
                         Форматы выходных файлов
   --no-scrape           Создать индекс без скрапинга статей
@@ -109,6 +106,7 @@ options:
                         Количество параллельных потоков для скачивания
   --rag                 Добавить YAML frontmatter с breadcrumbs в markdown файлы
                         для RAG-систем
+  --limit LIMIT         Ограничить количество скачиваемых статей (для тестирования)
 ```
 
 ## Выходные файлы
@@ -171,9 +169,9 @@ url: https://its.1c.ru/db/example
 python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt markdown
 ```
 
-* Скрапинг только одной главы во всех форматах:
+* Скрапинг первых 5 статей для тестирования:
 ```bash
-python main.py https://its.1c.ru/db/erp25ltsdoc --chapter "Описание отдельных учетных задач"
+python main.py https://its.1c.ru/db/erp25ltsdoc --limit 5
 ```
 
 * Скрапинг всего раздела в формате PDF с использованием 8 потоков:
@@ -209,6 +207,11 @@ python main.py https://its.1c.ru/db/erp25ltsdoc --format markdown --rag
 * Скрапинг во всех форматах с RAG-метаданными в Markdown:
 ```bash
 python main.py https://its.1c.ru/db/cabinetdoc --format json pdf txt markdown --rag
+```
+
+* Тестовый запуск: скрапинг первых 3 статей в markdown с RAG-метаданными:
+```bash
+python main.py https://its.1c.ru/db/erp25ltsdoc --format markdown --rag --limit 3
 ```
 
 ## Структура проекта
