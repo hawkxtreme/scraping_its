@@ -175,7 +175,7 @@ async def main():
                     await scraper.login()
                     for i, article_info in enumerate(articles_to_scrape):
                         await scraper.scrape_single_article(article_info, args.format, i, pbar, update_mode=args.update, rag_mode=args.rag)
-                    await scraper.close()
+                    await scraper.shutdown()
 
             # --- Step 5: Create TOC and Meta files ---
             print("\nStep 5: Creating Table of Contents and metadata file...")

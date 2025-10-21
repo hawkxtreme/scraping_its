@@ -36,11 +36,31 @@ class Scraper:
         # or the main process and should not be closed here to prevent race conditions.
         self.log("Browser context closed, connection remains open for other workers.")
 
+    async def shutdown(self):
+        """Fully closes all playwright resources."""
+        self.log("Shutting down all Playwright resources...")
+        try:
+            if self.context:
+                await self.context.close()
+        except Exception as e:
+            self.log(f"Warning: Error closing context during shutdown: {e}")
+        try:
+            if self.browser and self.browser.is_connected():
+                await self.browser.close()
+        except Exception as e:
+            self.log(f"Warning: Error closing browser during shutdown: {e}")
+        try:
+            if self.playwright:
+                await self.playwright.stop()
+        except Exception as e:
+            self.log(f"Warning: Error stopping playwright during shutdown: {e}")
+        self.log("Playwright shutdown complete.")
+
     async def reconnect(self):
         """Safely closes existing connections and re-establishes a new one."""
         self.log("Attempting to reconnect...")
         try:
-            if self.context and not self.context.is_closed():
+            if self.context:
                 await self.context.close()
         except Exception as e:
             self.log(f"Warning: Error closing context during reconnect: {e}")
@@ -215,12 +235,18 @@ class Scraper:
                         content_html = await page.content()
                         soup, _, content_hash = parser_module.parse_article_page(content_html)
                 else:
-                    # Parser V1 - always uses iframe
+                    # Parser V1 - more robust handling
                     article_frame = page.frame(name="w_metadata_doc_frame")
-                    if not article_frame:
-                        raise PlaywrightError(f"Could not find article frame for {article_info['url']}")
-                    iframe_html = await article_frame.content()
-                    soup, _, content_hash = parser_module.parse_article_page(iframe_html)
+                    if article_frame:
+                        # Content is in iframe
+                        self.log(f"  - Extracting from iframe for {article_info['url']}")
+                        content_html = await article_frame.content()
+                    else:
+                        # Content is in main page
+                        self.log(f"  - No iframe found, extracting from main page for {article_info['url']}")
+                        content_html = await page.content()
+                    
+                    soup, _, content_hash = parser_module.parse_article_page(content_html)
 
             except PlaywrightError as pe:
                 self.log(f"  - SKIPPING ARTICLE due to page-level PlaywrightError: {article_info['title']} - {pe}")

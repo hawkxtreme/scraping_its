@@ -28,6 +28,7 @@ MANIFEST
 
 # Output directory for scraped articles
 out/
+out_test/
 
 # PyInstaller
 *.manifest

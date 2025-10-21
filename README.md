@@ -214,6 +214,48 @@ python main.py https://its.1c.ru/db/cabinetdoc --format json pdf txt markdown --
 python main.py https://its.1c.ru/db/erp25ltsdoc --format markdown --rag --limit 3
 ```
 
+## Тестирование
+
+### Запуск всех тестов
+
+```bash
+python -m pytest
+```
+
+### Запуск сценарных тестов
+
+```bash
+# Запуск всех сценарных тестов
+python -m pytest tests/test_scenario.py -v
+
+# Запуск с выводом команды в терминале (как при обычном режиме работы)
+python -m pytest tests/test_scenario.py -v -s
+
+# Запуск только сценарных тестов с маркером
+python -m pytest -m scenario -v -s
+
+# Запуск конкретного сценарного теста
+python -m pytest tests/test_scenario.py::test_cabinetdoc_scenario_all_formats -v -s
+
+# Запуск с коротким traceback
+python -m pytest tests/test_scenario.py -v -s --tb=short
+```
+
+### Доступные сценарные тесты
+
+1. `test_cabinetdoc_scenario_all_formats` - тестирование всех форматов вывода
+2. `test_cabinetdoc_scenario_limit` - тестирование ограничения количества статей
+3. `test_cabinetdoc_scenario_rag_mode` - проверка RAG-режима с YAML frontmatter
+4. `test_cabinetdoc_scenario_no_scrape` - тест режима без скрапинга (только индекс)
+5. `test_v8std_scenario_parser_v2` - тестирование parser_v2 для v8std
+6. `test_cabinetdoc_scenario_parallel` - проверка параллельной обработки
+7. `test_cabinetdoc_scenario_update_mode` - тест режима обновления
+8. `test_cabinetdoc_scenario_force_reindex` - проверка принудительного переиндексирования
+9. `test_cabinetdoc_scenario_single_format` - тест одного формата вывода (PDF)
+10. `test_cabinetdoc_scenario_multiple_formats` - тест множественных форматов
+11. `test_cabinetdoc_scenario_metadata_validation` - проверка корректности метаданных
+12. `test_cabinetdoc_scenario_toc_validation` - проверка корректности создания оглавления
+
 ## Структура проекта
 
 Проект организован в модульной архитектуре:
