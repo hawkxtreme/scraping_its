@@ -7,3 +7,4 @@ markdownify
 pytest
 tqdm
 nest-asyncio
+colorama

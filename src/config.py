@@ -66,13 +66,13 @@ async def check_dependencies(log_func):
     Checks for necessary dependencies and configurations.
 
     Args:
-        log_func (function): The logging function.
+        log_func: The logging object (ScraperLogger instance).
 
     Returns:
         bool: True if all checks pass, False otherwise.
     """
     success = True
-    log_func("Step 1: Checking dependencies...")
+    log_func.info("Step 1: Checking dependencies...")
 
     # Check for required libraries
     try:
@@ -80,13 +80,12 @@ async def check_dependencies(log_func):
         import dotenv
         import bs4
         import markdownify
-        log_func("  - [OK] All required libraries are installed.")
+        log_func.info("All required libraries are installed", status="OK")
     except ImportError as e:
         success = False
-        log_func(f"[ERROR] A required library is not installed: {e.name}")
-        log_func("Please install the required libraries by running the following command:")
-        log_func("pip install -r requirements.txt")
-        log_func(f"Result: Failed - Missing library: {e.name}")
+        log_func.error(f"A required library is not installed: {e.name}", library=e.name)
+        log_func.info("Please install the required libraries by running the following command:")
+        log_func.info("pip install -r requirements.txt")
         return False
 
     # Check credentials
@@ -95,28 +94,27 @@ async def check_dependencies(log_func):
         success = False
         error_msg = "Credentials not found or are default in .env file. Please create and fill out the .env file."
         print(error_msg)
-        log_func(f"  - [FAIL] {error_msg}")
-        log_func("Result: Failed - Credentials not set.")
+        log_func.error(error_msg, status="FAIL")
+        log_func.warning("Suggestion: Create .env file with LOGIN_1C_USER and LOGIN_1C_PASSWORD")
         return False
     else:
-        log_func("  - [OK] Credentials found.")
+        log_func.info("Credentials found", status="OK")
 
     # Check browserless service
     try:
         async with async_playwright() as p:
             browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=5000)
             await browser.close()
-        log_func(f"  - [OK] Browserless service is running at {BROWSERLESS_URL}.")
+        log_func.info(f"Browserless service is running", url=BROWSERLESS_URL, status="OK")
     except Exception as e:
         success = False
         error_msg = f"Browserless service not found at {BROWSERLESS_URL}."
         print(error_msg)
-        log_func(f"  - [FAIL] {error_msg}")
-        log_func(f"    Error: {e}")
-        log_func(f"Result: Failed - Browserless service not available: {e}")
+        log_func.error(error_msg, url=BROWSERLESS_URL, status="FAIL")
+        log_func.log_error_with_context(e, "check_browserless", url=BROWSERLESS_URL)
         return False
 
     if success:
-        log_func("All dependency checks passed.")
+        log_func.info("All dependency checks passed", status="SUCCESS")
 
     return success
