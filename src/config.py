@@ -29,6 +29,13 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 # Global variable for the dynamic output directory
 dynamic_output_dir = None
 
+# Global variables for timeouts and retry configuration
+_PAGE_TIMEOUT = 90000  # milliseconds (default 90 seconds)
+_NETWORK_TIMEOUT = 60000  # milliseconds (default 60 seconds)
+_RETRY_COUNT = 3
+_RETRY_DELAY = 2.0  # seconds
+_REQUEST_DELAY = 0.5  # seconds
+
 def set_output_dir(name):
     """Sets the dynamic output directory."""
     global dynamic_output_dir
@@ -39,6 +46,64 @@ def get_output_dir():
     if dynamic_output_dir:
         return dynamic_output_dir
     return os.path.join(PROJECT_ROOT, "out")
+
+def set_timeouts(page_timeout=None, network_timeout=None, retry_count=None, retry_delay=None, request_delay=None):
+    """
+    Set global timeout and retry configuration.
+    
+    Args:
+        page_timeout (int): Page load timeout in seconds
+        network_timeout (int): Network operation timeout in seconds
+        retry_count (int): Number of retry attempts
+        retry_delay (float): Initial delay between retries in seconds
+        request_delay (float): Delay between requests in seconds
+    """
+    global _PAGE_TIMEOUT, _NETWORK_TIMEOUT, _RETRY_COUNT, _RETRY_DELAY, _REQUEST_DELAY
+    
+    if page_timeout is not None:
+        if page_timeout < 10 or page_timeout > 300:
+            raise ValueError("Page timeout must be between 10 and 300 seconds")
+        _PAGE_TIMEOUT = page_timeout * 1000  # Convert to milliseconds
+    
+    if network_timeout is not None:
+        if network_timeout < 5 or network_timeout > 180:
+            raise ValueError("Network timeout must be between 5 and 180 seconds")
+        _NETWORK_TIMEOUT = network_timeout * 1000  # Convert to milliseconds
+    
+    if retry_count is not None:
+        if retry_count < 0 or retry_count > 10:
+            raise ValueError("Retry count must be between 0 and 10")
+        _RETRY_COUNT = retry_count
+    
+    if retry_delay is not None:
+        if retry_delay < 0.1 or retry_delay > 60:
+            raise ValueError("Retry delay must be between 0.1 and 60 seconds")
+        _RETRY_DELAY = retry_delay
+    
+    if request_delay is not None:
+        if request_delay < 0 or request_delay > 10:
+            raise ValueError("Request delay must be between 0 and 10 seconds")
+        _REQUEST_DELAY = request_delay
+
+def get_page_timeout():
+    """Get page load timeout in milliseconds."""
+    return _PAGE_TIMEOUT
+
+def get_network_timeout():
+    """Get network operation timeout in milliseconds."""
+    return _NETWORK_TIMEOUT
+
+def get_retry_count():
+    """Get number of retry attempts."""
+    return _RETRY_COUNT
+
+def get_retry_delay():
+    """Get initial retry delay in seconds."""
+    return _RETRY_DELAY
+
+def get_request_delay():
+    """Get delay between requests in seconds."""
+    return _REQUEST_DELAY
 
 def get_tmp_index_dir():
     """Gets the temporary index directory."""

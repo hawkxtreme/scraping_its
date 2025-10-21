@@ -8,6 +8,7 @@ from tqdm import tqdm
 from . import config
 from . import parser
 from . import file_manager
+from .utils import retry_on_error, retry_on_timeout
 
 class Scraper:
     """Manages all web scraping operations using Playwright."""
@@ -83,16 +84,17 @@ class Scraper:
         await self.login()
         self.log.debug("Reconnect successful.")
 
+    @retry_on_error(max_attempts=3, delay=2.0)
     async def login(self):
-        """Performs login to the website."""
+        """Performs login to the website with automatic retry."""
         page = None
         try:
             self.log.info("Step 3: Logging in...")
             page = await self.context.new_page()
             
             self.log.debug("Navigating to login page", url=config.LOGIN_URL)
-            await page.goto(config.LOGIN_URL, timeout=60000)
-            await page.wait_for_load_state('networkidle')
+            await page.goto(config.LOGIN_URL, timeout=config.get_network_timeout())
+            await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
             
             self.log.debug("Filling login credentials", username=config.LOGIN_1C_USER)
             await page.fill("input#username", config.LOGIN_1C_USER)
@@ -100,7 +102,7 @@ class Scraper:
             
             self.log.debug("Clicking login button")
             await page.click('#loginButton')
-            await page.wait_for_load_state('networkidle')
+            await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
             
             # Check for login success by looking for the profile URL
             if page.url != "https://login.1c.ru/user/profile":
@@ -113,16 +115,17 @@ class Scraper:
         finally:
             await self._safely_close_page(page)
 
+    @retry_on_timeout()
     async def get_initial_toc(self, url):
-        """Scrapes the initial table of contents."""
+        """Scrapes the initial table of contents with retry on timeout."""
         page = None
         try:
             self.log.info(f"Step 4: Scraping initial table of contents from {url}...")
             page = await self.context.new_page()
             
             self.log.debug("Loading TOC page", url=url)
-            await page.goto(url, timeout=90000)
-            await page.wait_for_load_state('networkidle')
+            await page.goto(url, timeout=config.get_page_timeout())
+            await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
             page_content = await page.content()
             
             parser_module = parser.get_parser_for_url(url)
@@ -166,8 +169,8 @@ class Scraper:
             page = None
             try:
                 page = await self.context.new_page()
-                await page.goto(url, timeout=90000)
-                await page.wait_for_load_state('networkidle')
+                await page.goto(url, timeout=config.get_page_timeout())
+                await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
                 page_content = await page.content()
                 
                 parser_module = parser.get_parser_for_url(url)
@@ -235,8 +238,8 @@ class Scraper:
             page = await self.context.new_page()
 
             try:
-                await page.goto(article_info['url'], timeout=120000) # Increased timeout
-                await page.wait_for_load_state('networkidle', timeout=60000)
+                await page.goto(article_info['url'], timeout=config.get_page_timeout())
+                await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
 
                 parser_module = parser.get_parser_for_url(article_info['url'])
 
@@ -314,7 +317,8 @@ class Scraper:
                 await self._save_as_pdf(page, pdf_path)
                 self.log.debug(f"Saved PDF", path=pdf_path)
             
-            await asyncio.sleep(0.5)
+            # Use configured delay between requests
+            await asyncio.sleep(config.get_request_delay())
 
         except Exception as e:
             self.errors_count += 1
@@ -357,8 +361,8 @@ class Scraper:
                     
                     self.log.debug("Using print-friendly URL for PDF", url=print_url)
                     print_page = await self.context.new_page()
-                    await print_page.goto(print_url, timeout=90000)
-                    await print_page.wait_for_load_state('networkidle', timeout=60000)
+                    await print_page.goto(print_url, timeout=config.get_page_timeout())
+                    await print_page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
                     pdf_bytes = await print_page.pdf(format='A4', print_background=True)
                     with open(path, "wb") as f:
                         f.write(pdf_bytes)

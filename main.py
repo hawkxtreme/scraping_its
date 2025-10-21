@@ -36,6 +36,14 @@ async def main():
     parser.add_argument("--rag", action="store_true", help="Add breadcrumbs to markdown files for RAG systems.")
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of articles to scrape (for testing).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging.")
+    
+    # Timeout and retry configuration
+    parser.add_argument("--timeout", type=int, default=90, help="Page load timeout in seconds (default: 90)")
+    parser.add_argument("--network-timeout", type=int, default=60, help="Network operation timeout in seconds (default: 60)")
+    parser.add_argument("--retry-count", type=int, default=3, help="Number of retry attempts for failed requests (default: 3)")
+    parser.add_argument("--retry-delay", type=float, default=2.0, help="Initial delay between retries in seconds (default: 2.0)")
+    parser.add_argument("--delay", type=float, default=0.5, help="Delay between requests in seconds (default: 0.5)")
+    
     args = parser.parse_args()
 
     # --- Dynamic Directory Setup ---
@@ -49,6 +57,21 @@ async def main():
     except Exception as e:
         print(f"Could not parse URL to set output directory: {e}")
         # Fallback to default directory if parsing fails
+    
+    # --- Configure Timeouts and Retry Settings ---
+    try:
+        config.set_timeouts(
+            page_timeout=args.timeout,
+            network_timeout=args.network_timeout,
+            retry_count=args.retry_count,
+            retry_delay=args.retry_delay,
+            request_delay=args.delay
+        )
+        if args.verbose:
+            print(f"Timeouts configured: page={args.timeout}s, network={args.network_timeout}s, retry={args.retry_count}, delay={args.delay}s")
+    except ValueError as e:
+        print(f"Invalid timeout/retry configuration: {e}")
+        raise SystemExit(1)
 
     # Disable console output to avoid conflicts with tqdm progress bar
     # Console output enabled only in verbose mode or when running tests
