@@ -96,7 +96,28 @@ python main.py https://its.1c.ru/db/cabinetdoc \
 python main.py https://its.1c.ru/db/cabinetdoc --parallel 8
 ```
 
-> 📖 **Подробная документация:** [ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)
+### Объединение файлов
+
+```bash
+# Объединить JSON файлы (автоматически определит формат)
+python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100 --max-size 50
+
+# Объединить Markdown файлы (автоматически определит формат)
+python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 50
+
+# Принудительно указать формат вывода
+python main.py --merge --merge-dir out/cabinetdoc/json --merge-format markdown --max-files 100
+
+# Показать статистику объединения
+python main.py --merge --merge-dir out/cabinetdoc/json --merge-stats
+```
+
+**Результат:** 
+- JSON файлы → `merge/cabinetdoc/json/merged_group_*.json` + метаданные в `merge/cabinetdoc/`
+- Markdown файлы → `merge/cabinetdoc/markdown/merged_group_*.md` + метаданные в `merge/cabinetdoc/`
+
+> 📖 **Подробная документация:** [ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)  
+> 📖 **Объединение файлов:** [FILE_MERGING.md](docs/FILE_MERGING.md)
 
 ## 📊 Логирование
 
@@ -168,6 +189,26 @@ python main.py https://its.1c.ru/db/cabinetdoc --verbose
 
 # Без повторных попыток (для отладки)
 python main.py https://its.1c.ru/db/cabinetdoc --retry-count 0
+```
+
+### Объединение файлов
+
+```bash
+# Объединить JSON файлы (автоматически определит формат)
+python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100
+# → merge/cabinetdoc/json/merged_group_*.json
+
+# Объединить Markdown файлы (автоматически определит формат)
+python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 50
+# → merge/cabinetdoc/markdown/merged_group_*.md
+
+# Принудительно указать формат вывода
+python main.py --merge --merge-dir out/cabinetdoc/json --merge-format markdown --max-files 100
+# → merge/cabinetdoc/json/merged_group_*.md
+
+# Сжать объединенные файлы
+python main.py --merge --merge-dir out/cabinetdoc/json --compress
+# → merge/cabinetdoc/json/merged_group_*.json.gz
 ```
 
 > 📖 **Больше примеров:** [EXAMPLES.md](docs/EXAMPLES.md)

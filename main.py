@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import warnings
+from pathlib import Path
 from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -27,7 +28,9 @@ async def main():
 
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(description="Scrape articles from its.1c.ru.")
-    parser.add_argument("url", help="The starting URL for scraping.")
+    
+    # Основные аргументы для скрапинга
+    parser.add_argument("url", nargs='?', help="The starting URL for scraping.")
     parser.add_argument("-f", "--format", nargs='+', choices=['json', 'pdf', 'txt', 'markdown'], default=['json'], help="Output format(s).")
     parser.add_argument("--no-scrape", action="store_true", help="Only create the index without scraping full articles.")
     parser.add_argument("--force-reindex", action="store_true", help="Force re-indexing of all articles.")
@@ -44,7 +47,97 @@ async def main():
     parser.add_argument("--retry-delay", type=float, default=2.0, help="Initial delay between retries in seconds (default: 2.0)")
     parser.add_argument("--delay", type=float, default=0.5, help="Delay between requests in seconds (default: 0.5)")
     
+    # Команды объединения файлов
+    parser.add_argument("--merge", action="store_true", help="Merge files instead of scraping")
+    parser.add_argument("--merge-dir", help="Directory with files to merge")
+    parser.add_argument("--merge-output", help="Output directory for merged files")
+    parser.add_argument("--merge-format", choices=['json', 'markdown', 'txt'], default='json', help="Output format for merged files")
+    parser.add_argument("--max-files", type=int, default=100, help="Maximum files per merged group")
+    parser.add_argument("--max-size", type=float, default=50.0, help="Maximum size per merged group in MB")
+    parser.add_argument("--merge-filter", help="Filter pattern for files to merge (e.g., '*.json')")
+    parser.add_argument("--sort-by", choices=['name', 'size', 'date'], default='name', help="Sort files by")
+    parser.add_argument("--compress", action="store_true", help="Compress merged files")
+    parser.add_argument("--merge-stats", action="store_true", help="Show merge statistics without merging")
+    
     args = parser.parse_args()
+
+    # --- File Merging Mode ---
+    if args.merge:
+        from src.file_merger import FileMerger, MergeConfig
+        
+        if not args.merge_dir:
+            print("Ошибка: для режима объединения файлов необходимо указать --merge-dir")
+            sys.exit(1)
+            
+        # Настройка логирования для режима объединения
+        log_func = setup_logger("merge", verbose=args.verbose, console_output=True)
+        
+        # Создание конфигурации объединения
+        merge_config = MergeConfig(
+            max_files=args.max_files,
+            max_size_mb=args.max_size,
+            output_format=args.merge_format,
+            filter_pattern=args.merge_filter,
+            sort_by=args.sort_by,
+            compress_output=args.compress,
+            include_headers=True
+        )
+        
+        merger = FileMerger(merge_config)
+        
+        try:
+            if args.merge_stats:
+                # Показать только статистику
+                stats = merger.get_merge_statistics(args.merge_dir)
+                print("\n📊 Статистика объединения файлов:")
+                print(f"Всего файлов: {stats['total_files']}")
+                print(f"Общий размер: {stats['total_size_mb']} MB")
+                print(f"Средний размер файла: {stats['avg_file_size_mb']} MB")
+                print(f"Ожидаемое количество групп: {stats['estimated_groups']}")
+                print(f"Файлы по расширениям: {stats['files_by_extension']}")
+                
+                if stats['total_files'] == 0:
+                    print("⚠️  Файлы для объединения не найдены")
+                else:
+                    print(f"\n💡 Рекомендации:")
+                    if stats['estimated_groups'] > 10:
+                        print(f"   - Рассмотрите увеличение --max-files до {args.max_files * 2}")
+                        print(f"   - Или увеличение --max-size до {args.max_size * 2}")
+                    print(f"   - Команда для объединения:")
+                    print(f"     python main.py --merge --merge-dir {args.merge_dir} --max-files {args.max_files} --max-size {args.max_size}")
+            else:
+                # Выполнить объединение
+                print(f"\n🔄 Объединение файлов из {args.merge_dir}...")
+                log_func.info(f"Starting file merge from {args.merge_dir}")
+                
+                merged_files = merger.merge_files(
+                    args.merge_dir, 
+                    args.merge_output
+                )
+                
+                print(f"\n✅ Объединение завершено!")
+                print(f"Создано групп: {len(merged_files)}")
+                if merged_files:
+                    output_location = Path(merged_files[0]).parent
+                    print(f"Файлы сохранены в: {output_location}")
+                else:
+                    print("Файлы не были созданы")
+                
+                if args.verbose:
+                    print(f"\n📁 Созданные файлы:")
+                    for i, file_path in enumerate(merged_files, 1):
+                        print(f"   {i}. {file_path}")
+                        
+                log_func.info(f"Merge completed: {len(merged_files)} groups created")
+                
+        except Exception as e:
+            print_fatal_error(f"Ошибка при объединении файлов: {e}", log_func)
+            
+        return
+
+    # Проверка обязательного URL для режима скрапинга
+    if not args.url:
+        parser.error("URL is required for scraping mode")
 
     # --- Dynamic Directory Setup ---
     try:
