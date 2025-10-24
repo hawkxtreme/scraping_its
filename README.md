@@ -4,7 +4,29 @@
 
 ## 🚀 Быстрый старт
 
-### Установка
+### 🐳 **Docker (Рекомендуется)**
+
+1. **Соберите образ:**
+   ```bash
+   docker build -t scraping-its:latest .
+   ```
+
+2. **Настройте учетные данные:**
+   ```bash
+   copy .env-example .env
+   # Отредактируйте .env файл с вашими данными для входа на 1С
+   ```
+
+3. **Запустите скрапинг:**
+   ```bash
+   # Простой способ (рекомендуется)
+   .\scrape.bat https://its.1c.ru/db/cabinetdoc --format json
+   
+   # Или через универсальный скрипт
+   .\its.bat scrape https://its.1c.ru/db/cabinetdoc --format json
+   ```
+
+### 💻 **Локальная установка**
 
 1. **Запустите Docker контейнер:**
    ```bash
@@ -116,8 +138,68 @@ python main.py --merge --merge-dir out/cabinetdoc/json --merge-stats
 - JSON файлы → `merge/cabinetdoc/json/merged_group_*.json` + метаданные в `merge/cabinetdoc/`
 - Markdown файлы → `merge/cabinetdoc/markdown/merged_group_*.md` + метаданные в `merge/cabinetdoc/`
 
+## 🚀 **Простые команды**
+
+### Скрапинг
+```bash
+# Скачать документацию
+.\scrape.bat https://its.1c.ru/db/cabinetdoc --format json markdown
+
+# С ограничением количества статей
+.\scrape.bat https://its.1c.ru/db/cabinetdoc --limit 10 --format json
+
+```
+
+### Объединение файлов
+```bash
+# Объединить JSON файлы
+.\merge.bat out/cabinetdoc/json --max-files 100
+
+# Показать статистику
+.\merge.bat out/cabinetdoc/markdown --merge-stats
+
+```
+
+### PowerShell версии (в scripts/)
+```powershell
+# Скрапинг
+.\scripts\scrape.ps1 https://its.1c.ru/db/cabinetdoc --format json
+
+# Объединение
+.\scripts\merge.ps1 out/cabinetdoc/json --max-files 100
+
+# Универсальный скрипт
+.\scripts\its.ps1 scrape https://its.1c.ru/db/cabinetdoc --format json
+.\scripts\its.ps1 merge out/cabinetdoc/json --max-files 100
+```
+
+### Linux/macOS версии (в scripts/)
+```bash
+# Сделать исполняемыми
+chmod +x scripts/*.sh
+
+# Скрапинг
+./scripts/scrape.sh https://its.1c.ru/db/cabinetdoc --format json
+
+# Объединение
+./scripts/merge.sh out/cabinetdoc/json --max-files 100
+
+# Универсальный скрипт
+./scripts/its.sh help
+```
+
+### Docker Compose
+```bash
+# Полный цикл: скрапинг + объединение
+docker-compose --profile full up
+
+# Только объединение файлов
+docker-compose --profile merge up
+```
+
 > 📖 **Подробная документация:** [ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)  
-> 📖 **Объединение файлов:** [FILE_MERGING.md](docs/FILE_MERGING.md)
+> 📖 **Объединение файлов:** [FILE_MERGING.md](docs/FILE_MERGING.md)  
+> 🐳 **Docker документация:** [DOCKER.md](docs/DOCKER.md)
 
 ## 📊 Логирование
 

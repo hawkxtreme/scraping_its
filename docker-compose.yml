@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Browserless Chrome для браузерной автоматизации
+  browserless:
+    image: browserless/chrome:latest
+    container_name: browserless-chrome
+    ports:
+      - "3000:3000"
+    environment:
+      - PREBOOT_CHROME=true
+      - KEEP_ALIVE=true
+      - MAX_CONCURRENT_SESSIONS=10
+      - MAX_QUEUE_LENGTH=100
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Основной сервис скрапинга
+  scraper:
+    build: .
+    container_name: scraping-its
+    depends_on:
+      browserless:
+        condition: service_healthy
+    volumes:
+      - ./out:/app/out
+      - ./merge:/app/merge
+      - ./.env:/app/.env:ro
+    environment:
+      - BROWSERLESS_URL=http://browserless:3000
+      - PYTHONUNBUFFERED=1
+    command: ["https://its.1c.ru/db/cabinetdoc", "--format", "json", "--limit", "5"]
+    restart: "no"
+    profiles:
+      - scrape
+
+  # Сервис для объединения файлов
+  merger:
+    build: .
+    container_name: file-merger
+    volumes:
+      - ./out:/app/out
+      - ./merge:/app/merge
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--merge", "--merge-dir", "out/cabinetdoc/json", "--max-files", "100"]
+    restart: "no"
+    profiles:
+      - merge
+
+  # Полный цикл: скрапинг + объединение
+  full-cycle:
+    build: .
+    container_name: full-cycle
+    depends_on:
+      browserless:
+        condition: service_healthy
+    volumes:
+      - ./out:/app/out
+      - ./merge:/app/merge
+      - ./.env:/app/.env:ro
+    environment:
+      - BROWSERLESS_URL=http://browserless:3000
+      - PYTHONUNBUFFERED=1
+    command: >
+      sh -c "
+        python main.py https://its.1c.ru/db/cabinetdoc --format json markdown txt --limit 10 &&
+        python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100 &&
+        python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 100 &&
+        python main.py --merge --merge-dir out/cabinetdoc/txt --max-files 100
+      "
+    restart: "no"
+    profiles:
+      - full
+
+networks:
+  default:
+    name: scraping-network
+

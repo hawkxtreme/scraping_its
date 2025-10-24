@@ -1,0 +1,45 @@
+# Переопределения для разработки
+version: '3.8'
+
+services:
+  scraper:
+    volumes:
+      - .:/app  # Монтируем весь код для разработки
+      - ./out:/app/out
+      - ./merge:/app/merge
+      - ./.env:/app/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BROWSERLESS_URL=http://browserless:3000
+    command: ["--help"]  # По умолчанию показываем справку
+
+  merger:
+    volumes:
+      - .:/app  # Монтируем весь код для разработки
+      - ./out:/app/out
+      - ./merge:/app/merge
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["--help"]  # По умолчанию показываем справку
+
+  # Сервис для разработки с интерактивным режимом
+  dev:
+    build: .
+    container_name: scraping-its-dev
+    depends_on:
+      browserless:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./out:/app/out
+      - ./merge:/app/merge
+      - ./.env:/app/.env:ro
+    environment:
+      - BROWSERLESS_URL=http://browserless:3000
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]
+    profiles:
+      - dev
+
