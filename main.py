@@ -201,13 +201,12 @@ async def main():
         if args.force_reindex or not os.path.exists(os.path.join(file_manager.get_index_path(), "_toc_tree.json")):
             toc_tree = await scraper_instance.get_initial_toc(args.url)
             
-            # For parser_v2 (v8std), discover nested articles recursively
-            if "v8std" in args.url:
-                print("Discovering nested articles recursively...")
-                log_func.info("Discovering nested articles recursively for parser_v2...")
-                toc_tree = await scraper_instance.discover_nested_articles(toc_tree, max_depth=3)
-                print(f"Recursive discovery complete.")
-                log_func.info("Recursive discovery complete.")
+            # Always attempt recursive discovery - the system will auto-detect the parser type
+            print("Discovering nested articles recursively...")
+            log_func.info("Discovering nested articles recursively with auto-detection...")
+            toc_tree = await scraper_instance.discover_nested_articles(toc_tree, max_depth=3)
+            print(f"Recursive discovery complete.")
+            log_func.info("Recursive discovery complete.")
             
             file_manager.save_hierarchical_index(toc_tree)
         else:

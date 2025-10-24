@@ -128,7 +128,16 @@ class Scraper:
             await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
             page_content = await page.content()
             
+            # Auto-detect parser type based on content
             parser_module = parser.get_parser_for_url(url)
+            if parser_module is None:
+                # Unknown URL pattern - detect from content
+                parser_type = parser.detect_parser_type(page_content)
+                parser_module = parser.get_parser_by_type(parser_type)
+                self.log.debug("Auto-detected parser type", parser_type=parser_type, url=url)
+            else:
+                self.log.debug("Using known parser for URL pattern", parser=parser_module.__name__, url=url)
+            
             self.log.debug("Extracting TOC links", parser=parser_module.__name__)
             initial_toc_links = parser_module.extract_toc_links(page_content)
             
@@ -173,10 +182,16 @@ class Scraper:
                 await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
                 page_content = await page.content()
                 
+                # Auto-detect parser type based on content
                 parser_module = parser.get_parser_for_url(url)
+                if parser_module is None:
+                    # Unknown URL pattern - detect from content
+                    parser_type = parser.detect_parser_type(page_content)
+                    parser_module = parser.get_parser_by_type(parser_type)
+                    self.log.debug("Auto-detected parser type for nested discovery", parser_type=parser_type, url=url)
                 
-                # For parser_v2, parse the page to find nested links
-                if parser_module.__name__ == 'src.parser_v2':
+                # Parse the page to find nested links (both v1 and v2 support this)
+                if parser_module.__name__ in ['src.parser_v1', 'src.parser_v2']:
                     try:
                         # Check if page has iframe with content
                         article_frame = page.frame(name="w_metadata_doc_frame")
@@ -241,35 +256,26 @@ class Scraper:
                 await page.goto(article_info['url'], timeout=config.get_page_timeout())
                 await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
 
+                # Auto-detect parser type based on content
+                page_content = await page.content()
                 parser_module = parser.get_parser_for_url(article_info['url'])
+                if parser_module is None:
+                    # Unknown URL pattern - detect from content
+                    parser_type = parser.detect_parser_type(page_content)
+                    parser_module = parser.get_parser_by_type(parser_type)
+                    self.log.debug("Auto-detected parser type for article scraping", parser_type=parser_type, url=article_info['url'])
 
-                # For parser_v2, check if page uses iframe (like /content/XXX/hdoc pages)
-                if parser_module.__name__ == 'src.parser_v2':
-                    # Check if page has iframe with content
-                    article_frame = page.frame(name="w_metadata_doc_frame")
-                    if article_frame:
-                        # Content is in iframe (like /content/ pages)
-                        self.log.debug("Extracting from iframe", url=article_info['url'])
-                        iframe_html = await article_frame.content()
-                        soup, _, content_hash = parser_module.parse_article_page(iframe_html)
-                    else:
-                        # Content is in main page (like /browse/ pages)
-                        self.log.debug("Extracting from main page", url=article_info['url'])
-                        content_html = await page.content()
-                        soup, _, content_hash = parser_module.parse_article_page(content_html)
+                # Check if page uses iframe (both v1 and v2 support this)
+                article_frame = page.frame(name="w_metadata_doc_frame")
+                if article_frame:
+                    # Content is in iframe (like /content/ pages)
+                    self.log.debug("Extracting from iframe", url=article_info['url'])
+                    iframe_html = await article_frame.content()
+                    soup, _, content_hash = parser_module.parse_article_page(iframe_html)
                 else:
-                    # Parser V1 - more robust handling
-                    article_frame = page.frame(name="w_metadata_doc_frame")
-                    if article_frame:
-                        # Content is in iframe
-                        self.log.debug("Extracting from iframe", url=article_info['url'])
-                        content_html = await article_frame.content()
-                    else:
-                        # Content is in main page
-                        self.log.debug("No iframe found, extracting from main page", url=article_info['url'])
-                        content_html = await page.content()
-                    
-                    soup, _, content_hash = parser_module.parse_article_page(content_html)
+                    # Content is in main page (like /browse/ pages)
+                    self.log.debug("Extracting from main page", url=article_info['url'])
+                    soup, _, content_hash = parser_module.parse_article_page(page_content)
 
             except PlaywrightError as pe:
                 self.log.debug(f"Playwright error, will attempt reconnect", 
