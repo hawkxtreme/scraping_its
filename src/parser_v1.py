@@ -32,21 +32,26 @@ def extract_toc_links(html_content):
         
     return parse_ul(top_ul)
 
-def parse_article_page(iframe_html):
+def parse_article_page(iframe_html, url=None):
     """
     Parses the HTML of an article's iframe to find content and nested links.
+    Args:
+        iframe_html: HTML content to parse
+        url: URL of the page (used for unique hash calculation)
     """
     soup = BeautifulSoup(iframe_html, 'html.parser')
     content_div = soup.find('body')
     if not content_div:
         raise ValueError("Could not find body content in the iframe.")
 
-    # Calculate content hash - include URL for uniqueness
+    # Calculate content hash - include URL for uniqueness (including anchor)
     article_text = content_div.get_text(separator='\n', strip=True)
     # Use a more robust hash that includes URL to avoid false duplicates
     # Only create hash if content is not empty
     if article_text.strip():
-        content_hash = hash(f"{article_text}|{len(article_text)}")
+        # Include full URL (with anchor) in hash to treat different sections as unique
+        url_part = url if url else ""
+        content_hash = hash(f"{url_part}|{article_text}|{len(article_text)}")
     else:
         content_hash = 0  # Special value for empty content
 

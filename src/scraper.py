@@ -126,11 +126,16 @@ class Scraper:
             self.log.debug("Loading TOC page", url=url)
             await page.goto(url, timeout=config.get_page_timeout())
             await page.wait_for_load_state('networkidle', timeout=config.get_network_timeout())
-            page_content = await page.content()
             
             parser_module = parser.get_parser_for_url(url)
             self.log.debug("Extracting TOC links", parser=parser_module.__name__)
-            initial_toc_links = parser_module.extract_toc_links(page_content)
+            
+            # Для parser_v3 используем динамическое раскрытие дерева
+            if parser_module.__name__ == 'src.parser_v3':
+                initial_toc_links = await self._expand_tree_and_collect_links(page, url)
+            else:
+                page_content = await page.content()
+                initial_toc_links = parser_module.extract_toc_links(page_content)
             
             self.log.info(f"Found {len(initial_toc_links)} initial links", count=len(initial_toc_links))
 
@@ -251,12 +256,12 @@ class Scraper:
                         # Content is in iframe (like /content/ pages)
                         self.log.debug("Extracting from iframe", url=article_info['url'])
                         iframe_html = await article_frame.content()
-                        soup, _, content_hash = parser_module.parse_article_page(iframe_html)
+                        soup, _, content_hash = parser_module.parse_article_page(iframe_html, article_info['url'])
                     else:
                         # Content is in main page (like /browse/ pages)
                         self.log.debug("Extracting from main page", url=article_info['url'])
                         content_html = await page.content()
-                        soup, _, content_hash = parser_module.parse_article_page(content_html)
+                        soup, _, content_hash = parser_module.parse_article_page(content_html, article_info['url'])
                 else:
                     # Parser V1 - more robust handling
                     article_frame = page.frame(name="w_metadata_doc_frame")
@@ -269,7 +274,7 @@ class Scraper:
                         self.log.debug("No iframe found, extracting from main page", url=article_info['url'])
                         content_html = await page.content()
                     
-                    soup, _, content_hash = parser_module.parse_article_page(content_html)
+                    soup, _, content_hash = parser_module.parse_article_page(content_html, article_info['url'])
 
             except PlaywrightError as pe:
                 self.log.debug(f"Playwright error, will attempt reconnect", 
@@ -347,6 +352,174 @@ class Scraper:
                 await page.close()
         except Exception as e:
             self.log.debug(f"Error closing page: {e}")
+    
+    async def _expand_tree_and_collect_links(self, page, base_url, max_depth=4):
+        """
+        Динамически раскрывает дерево навигации и собирает все ссылки.
+        Используется для parser_v3 (v8327doc, method_dev, metod81)
+        
+        Args:
+            page: Playwright page объект
+            base_url: Базовый URL страницы
+            max_depth: Максимальная глубина рекурсии
+            
+        Returns:
+            List[dict]: Список ссылок с заголовками
+        """
+        all_pages = []
+        processed_urls = set()
+        
+        self.log.debug("Starting tree expansion", max_depth=max_depth)
+        
+        async def click_and_extract(current_depth=0):
+            """Рекурсивно кликает на ссылки дерева и извлекает контент"""
+            if current_depth >= max_depth:
+                self.log.debug(f"Max depth {max_depth} reached")
+                return
+            
+            # Получаем все ссылки в дереве навигации
+            tree_links = await page.evaluate('''() => {
+                const tree = document.querySelector('.tree');
+                if (!tree) return [];
+                
+                const links = Array.from(tree.querySelectorAll('a'));
+                return links.map((link, idx) => ({
+                    href: link.href,
+                    text: link.textContent.trim(),
+                    index: idx
+                }));
+            }''')
+            
+            if not tree_links:
+                self.log.debug("No tree links found")
+                return
+            
+            self.log.debug(f"Depth {current_depth}: found {len(tree_links)} tree links")
+            
+            # Запоминаем обработанные на этом уровне
+            links_processed_at_level = set()
+            
+            i = 0
+            while i < len(tree_links):
+                try:
+                    # Перечитываем ссылки (DOM мог измениться)
+                    current_tree_links = await page.evaluate('''() => {
+                        const tree = document.querySelector('.tree');
+                        if (!tree) return [];
+                        const links = Array.from(tree.querySelectorAll('a'));
+                        return links.map((link, idx) => ({
+                            href: link.href,
+                            text: link.textContent.trim(),
+                            index: idx
+                        }));
+                    }''')
+                    
+                    if i >= len(current_tree_links):
+                        break
+                    
+                    link_info = current_tree_links[i]
+                    href = link_info['href']
+                    text = link_info['text']
+                    
+                    # Пропускаем обработанные
+                    if href in links_processed_at_level or href in processed_urls:
+                        i += 1
+                        continue
+                    
+                    links_processed_at_level.add(href)
+                    
+                    if not text or not href:
+                        i += 1
+                        continue
+                    
+                    self.log.debug(f"  [{current_depth}] Clicking: {text[:50]}", url=href)
+                    
+                    # Кликаем на ссылку в дереве
+                    try:
+                        await page.evaluate(f'''() => {{
+                            const tree = document.querySelector('.tree');
+                            if (!tree) return;
+                            const links = Array.from(tree.querySelectorAll('a'));
+                            if (links[{i}]) {{
+                                links[{i}].scrollIntoView({{behavior: 'auto', block: 'center'}});
+                                links[{i}].click();
+                            }}
+                        }}''')
+                        
+                        # Ждем немного для загрузки контента
+                        await page.wait_for_timeout(500)
+                        
+                    except Exception as e:
+                        self.log.debug(f"    -> Click error: {str(e)[:80]}")
+                        i += 1
+                        continue
+                    
+                    # Извлекаем контентные ссылки справа после клика
+                    try:
+                        content_links = await page.evaluate('''() => {
+                            // Ищем li.doc a - специфичные элементы контента в правой панели
+                            const docLinks = Array.from(document.querySelectorAll('li.doc a'));
+                            return docLinks.map(link => ({
+                                href: link.href,
+                                text: link.textContent.trim()
+                            })).filter(l => l.href && l.text);
+                        }''')
+                        
+                        self.log.debug(f"    -> Found {len(content_links)} li.doc links in content area")
+                        
+                        # Добавляем найденные ссылки
+                        for content_link in content_links:
+                            content_url = content_link['href']
+                            if content_url not in processed_urls:
+                                all_pages.append({
+                                    "title": content_link['text'],
+                                    "url": content_url,
+                                    "children": []
+                                })
+                                processed_urls.add(content_url)
+                                self.log.debug(f"       • {content_link['text'][:60]}")
+                        
+                    except Exception as e:
+                        self.log.debug(f"    -> Error extracting content links: {str(e)[:80]}")
+                    
+                    # Проверяем, появились ли новые элементы в дереве
+                    try:
+                        new_tree_links = await page.evaluate('''() => {
+                            const tree = document.querySelector('.tree');
+                            if (!tree) return [];
+                            const links = Array.from(tree.querySelectorAll('a'));
+                            return links.map(link => ({href: link.href, text: link.textContent.trim()}));
+                        }''')
+                        
+                        new_count = len(new_tree_links) - len(current_tree_links)
+                        
+                        # Если есть новые подразделы, рекурсивно обрабатываем
+                        if new_count > 0 and current_depth < max_depth - 1:
+                            self.log.debug(f"    -> {new_count} new sub-sections found, going deeper...")
+                            await click_and_extract(current_depth + 1)
+                            
+                            # После рекурсии обновляем список ссылок
+                            tree_links = await page.evaluate('''() => {
+                                const tree = document.querySelector('.tree');
+                                if (!tree) return [];
+                                const links = Array.from(tree.querySelectorAll('a'));
+                                return links.map((link, idx) => ({href: link.href, text: link.textContent.trim(), index: idx}));
+                            }''')
+                    
+                    except Exception as e:
+                        self.log.debug(f"    -> Error checking new tree links: {str(e)[:80]}")
+                    
+                except Exception as e:
+                    self.log.debug(f"  Error processing link {i}: {str(e)[:80]}")
+                
+                i += 1
+        
+        # Запускаем рекурсивное раскрытие
+        await click_and_extract(current_depth=0)
+        
+        self.log.debug(f"Tree fully expanded. Total pages found: {len(all_pages)}")
+        
+        return all_pages
 
     async def _save_as_pdf(self, page: Page, path: str):
         """Helper function to save a page as a PDF, trying the print-friendly link first."""
