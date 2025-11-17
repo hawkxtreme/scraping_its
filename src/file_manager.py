@@ -173,7 +173,15 @@ def create_markdown_toc(toc_tree, articles, formats):
                     f.write("    " * indent_level + f"*   **{node['title']}**\n")
                     for format in formats:
                         # Correct relative path for the new structure
-                        f.write("    " * (indent_level + 1) + f"*   [{format.upper()}](./{format}/{filename_base}.{format})\n")
+                        # Special case: markdown files are saved with .md extension
+                        if format == "markdown":
+                            ext = "md"
+                        else:
+                            ext = format
+                        f.write(
+                            "    " * (indent_level + 1)
+                            + f"*   [{format.upper()}](./{format}/{filename_base}.{ext})\n"
+                        )
                 else:
                     f.write("    " * indent_level + f"*   **{node['title']}**\n")
 

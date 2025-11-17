@@ -99,6 +99,31 @@ def parse_article_page(html_content):
         if href and text:
             # We need to filter out links that are not articles
             if href.startswith('/db/'):
+                # Filter out common navigation and reference links
+                text_lower = text.lower().strip()
+                skip_patterns = [
+                    'здесь', 'подробнее', 'см.', 'книгу', 'книге', 'описано', 'описана', 
+                    'описаны', 'написано', 'приведено', 'приводится', 'можно', 'прочитать',
+                    'получить', 'ознакомиться', 'подробное', 'описание', 'в книге',
+                    'подробно описано', 'описанной в книге', 'описана в книге',
+                    'описаны в книге', 'написано в книге', 'приведено в книге',
+                    'приводится в книге', 'можно прочитать в книге', 'можно получить в книге',
+                    'подробнее можно ознакомиться в книге', 'подробное описание',
+                    'подробнее см. книгу', 'подробно описано в книге'
+                ]
+                
+                # Skip if text matches any skip pattern
+                if any(pattern in text_lower for pattern in skip_patterns):
+                    continue
+                
+                # Skip very short text (likely navigation)
+                if len(text.strip()) < 3:
+                    continue
+                
+                # Skip text that looks like page numbers or IDs
+                if text.strip().isdigit() or text.strip().startswith('http'):
+                    continue
+                
                 full_url = f"{config.BASE_URL}{href}"
                 nested_links.append({"title": text, "url": full_url})
     
