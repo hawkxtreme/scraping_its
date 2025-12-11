@@ -21,24 +21,30 @@
    playwright install chromium
    ```
 
-3. **Настройте учетные данные:**
+3. **Создайте файл `.env`** в корне проекта:
    ```bash
+   # Windows
    copy .env-example .env
-   # Отредактируйте .env файл с вашими данными для входа на 1С
+   
+   # Linux/macOS
+   cp .env-example .env
    ```
 
-### Базовое использование
+4. **Откройте файл `.env`** и укажите ваши учетные данные:
+   ```env
+   LOGIN_1C_USER="ваш_логин"
+   LOGIN_1C_PASSWORD="ваш_пароль"
+   
+   # Опционально: если browserless запущен на другом адресе
+   # BROWSERLESS_URL=http://localhost:3000
+   ```
 
-```bash
-# Скачать все статьи раздела в JSON формате
-python main.py https://its.1c.ru/db/cabinetdoc --format json
-
-# Скачать в нескольких форматах
-python main.py https://its.1c.ru/db/cabinetdoc --format json pdf markdown
-
-# Тестовый запуск (первые 5 статей)
-python main.py https://its.1c.ru/db/cabinetdoc --limit 5
-```
+5. **Как работает авторизация:**
+   - Скрипт автоматически открывает страницу входа: `https://login.1c.ru/login`
+   - Заполняет поля логина и пароля из файла `.env`
+   - Нажимает кнопку входа
+   - Проверяет успешность авторизации (перенаправление на страницу профиля)
+   - После успешной авторизации начинается процесс скрапинга
 
 ## 📋 Системные требования
 
@@ -46,7 +52,6 @@ python main.py https://its.1c.ru/db/cabinetdoc --limit 5
 - **Docker:** 20.10+ (для browserless)
 - **Playwright:** устанавливается автоматически
 - **ОС:** Windows 10/11, Linux (Ubuntu 20.04+), macOS 11+
-
 
 ## ⚙️ Основные команды
 
@@ -75,50 +80,6 @@ python main.py --help
 | **TXT** | Простой текст | Компактный размер, индексация |
 | **Markdown** | Форматированный текст | GitHub-совместимый, RAG-метаданные |
 
-## 🔧 Продвинутые настройки
-
-### Таймауты и повторные попытки
-
-```bash
-# Для медленного соединения
-python main.py https://its.1c.ru/db/cabinetdoc \
-  --timeout 180 --retry-count 5 --delay 2
-
-# Для быстрого соединения  
-python main.py https://its.1c.ru/db/cabinetdoc \
-  --timeout 30 --retry-count 2 --delay 0.2
-```
-
-### Параллельная обработка
-
-```bash
-# Использовать 8 потоков для ускорения
-python main.py https://its.1c.ru/db/cabinetdoc --parallel 8
-```
-
-### Объединение файлов
-
-```bash
-# Объединить JSON файлы (автоматически определит формат)
-python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100 --max-size 50
-
-# Объединить Markdown файлы (автоматически определит формат)
-python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 50
-
-# Принудительно указать формат вывода
-python main.py --merge --merge-dir out/cabinetdoc/json --merge-format markdown --max-files 100
-
-# Показать статистику объединения
-python main.py --merge --merge-dir out/cabinetdoc/json --merge-stats
-```
-
-**Результат:** 
-- JSON файлы → `merge/cabinetdoc/json/merged_group_*.json` + метаданные в `merge/cabinetdoc/`
-- Markdown файлы → `merge/cabinetdoc/markdown/merged_group_*.md` + метаданные в `merge/cabinetdoc/`
-
-> 📖 **Подробная документация:** [ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)  
-> 📖 **Объединение файлов:** [FILE_MERGING.md](docs/FILE_MERGING.md)
-
 ## 📊 Логирование
 
 Проект использует многоуровневую систему логирования:
@@ -129,22 +90,9 @@ python main.py --merge --merge-dir out/cabinetdoc/json --merge-stats
 
 > 📖 **Подробно о логировании:** [LOGGING.md](docs/LOGGING.md)
 
-## 🧪 Тестирование
-
-```bash
-# Запуск всех тестов
-python -m pytest
-
-# Сценарные тесты
-python -m pytest tests/test_scenario.py -v -s
-
-# Конкретный тест
-python -m pytest tests/test_scenario.py::test_cabinetdoc_scenario_all_formats -v
-```
-
 ## 📂 Структура проекта
 
-```
+```text
 scraping_its/
 ├── main.py              # Точка входа
 ├── src/                 # Основной код
@@ -159,14 +107,34 @@ scraping_its/
 └── docs/                # Документация
 ```
 
-## 📝 Примеры использования
+## 📝 Примеры использования и настройки
 
-### Базовые сценарии
+### Базовое использование
 
 ```bash
-# Скачать весь раздел документации
+# Скачать все статьи раздела в JSON формате
+python main.py https://its.1c.ru/db/cabinetdoc --format json
+
+# Скачать в нескольких форматах одновременно
+python main.py https://its.1c.ru/db/cabinetdoc --format json pdf markdown
+
+# Тестовый запуск (первые 5 статей)
+python main.py https://its.1c.ru/db/cabinetdoc --limit 5
+```
+
+### Работа с форматами
+
+```bash
+# Скачать весь раздел документации во всех форматах
 python main.py https://its.1c.ru/db/erp25ltsdoc --format json pdf txt markdown
 
+# RAG-режим для AI систем (Markdown с метаданными)
+python main.py https://its.1c.ru/db/cabinetdoc --format markdown --rag --parallel 8
+```
+
+### Обновление и индексация
+
+```bash
 # Обновить только измененные статьи
 python main.py https://its.1c.ru/db/cabinetdoc --update --format json pdf
 
@@ -174,31 +142,29 @@ python main.py https://its.1c.ru/db/cabinetdoc --update --format json pdf
 python main.py https://its.1c.ru/db/cabinetdoc --no-scrape
 ```
 
-### RAG-режим для AI систем
+### Производительность и оптимизация
 
 ```bash
-# Markdown с метаданными для RAG
-python main.py https://its.1c.ru/db/cabinetdoc --format markdown --rag
-```
+# Использовать параллельную обработку (8 потоков)
+python main.py https://its.1c.ru/db/cabinetdoc --parallel 8
 
-### Отладка и диагностика
+# Настройки для медленного соединения
+python main.py https://its.1c.ru/db/cabinetdoc \
+  --timeout 180 --retry-count 5 --delay 2
 
-```bash
-# Подробное логирование
-python main.py https://its.1c.ru/db/cabinetdoc --verbose
-
-# Без повторных попыток (для отладки)
-python main.py https://its.1c.ru/db/cabinetdoc --retry-count 0
+# Настройки для быстрого соединения
+python main.py https://its.1c.ru/db/cabinetdoc \
+  --timeout 30 --retry-count 2 --delay 0.2
 ```
 
 ### Объединение файлов
 
 ```bash
 # Объединить JSON файлы (автоматически определит формат)
-python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100
+python main.py --merge --merge-dir out/cabinetdoc/json --max-files 100 --max-size 50
 # → merge/cabinetdoc/json/merged_group_*.json
 
-# Объединить Markdown файлы (автоматически определит формат)
+# Объединить Markdown файлы
 python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 50
 # → merge/cabinetdoc/markdown/merged_group_*.md
 
@@ -206,30 +172,52 @@ python main.py --merge --merge-dir out/cabinetdoc/markdown --max-files 50
 python main.py --merge --merge-dir out/cabinetdoc/json --merge-format markdown --max-files 100
 # → merge/cabinetdoc/json/merged_group_*.md
 
+# Показать статистику объединения без выполнения
+python main.py --merge --merge-dir out/cabinetdoc/json --merge-stats
+
 # Сжать объединенные файлы
 python main.py --merge --merge-dir out/cabinetdoc/json --compress
 # → merge/cabinetdoc/json/merged_group_*.json.gz
 ```
 
+**Результат объединения:**
+
+- JSON файлы → `merge/cabinetdoc/json/merged_group_*.json` + метаданные в `merge/cabinetdoc/`
+- Markdown файлы → `merge/cabinetdoc/markdown/merged_group_*.md` + метаданные в `merge/cabinetdoc/`
+
+### Отладка и диагностика
+
+```bash
+# Подробное логирование для отладки
+python main.py https://its.1c.ru/db/cabinetdoc --verbose
+
+# Без повторных попыток (для быстрой отладки)
+python main.py https://its.1c.ru/db/cabinetdoc --retry-count 0
+```
+
+> 📖 **Подробная документация:** [ADVANCED_USAGE.md](docs/ADVANCED_USAGE.md)  
+> 📖 **Объединение файлов:** [FILE_MERGING.md](docs/FILE_MERGING.md)  
 > 📖 **Больше примеров:** [EXAMPLES.md](docs/EXAMPLES.md)
+
+## 🧪 Тестирование
+
+```bash
+# Запуск всех тестов
+python -m pytest
+
+# Сценарные тесты
+python -m pytest tests/test_scenario.py -v -s
+
+# Конкретный тест
+python -m pytest tests/test_scenario.py::test_cabinetdoc_scenario_all_formats -v
+```
 
 ## ⚖️ Условия использования
 
 Используйте продукт только при соблюдении условий:
+
 - Материалы на ИТС бесплатные ИЛИ у вас оплачена подписка
 - На странице статей активна кнопка "Печать"
-
-## 🛣️ Roadmap
-
-Текущие планы развития проекта:
-
-- ✅ Улучшенное логирование и обработка ошибок
-- ✅ Настраиваемые таймауты и повторные попытки  
-- 🔄 Система кэширования для ускорения
-- 📋 Расширенная фильтрация статей
-- 📋 Поддержка формата DOCX
-
-> 📖 **Подробный roadmap:** [ROADMAP_ANALYSIS.md](ROADMAP_ANALYSIS.md)
 
 ## 📄 Лицензия
 
